@@ -1,26 +1,59 @@
-# Vinyl v0.5
+# Vinyl v0.6
 
-Vinyl is an experimental Electron/Chromium-powered desktop browser with its own interface, a native left bookmark shelf, and a retractable toolbar. It is not Google Chrome or a full Chromium source fork.
+Vinyl is an experimental Electron/Chromium-powered desktop browser with its own interface, a native left bookmark shelf, a retractable toolbar, and update support through GitHub Releases. It is not Google Chrome or a full Chromium source fork.
 
-## Install as an actual Windows application
+## Updating the installed application
 
-1. Extract the Vinyl ZIP to a folder on your Windows computer.
-2. Install **Node.js 22 or newer** from https://nodejs.org/ if you do not already have it. This is needed only to build the current project; you do not need Node to launch an installed Vinyl app.
-3. **Double-click `INSTALL_VINYL.bat`**. On first use, this downloads Electron and build dependencies, runs the tests, builds `dist/Vinyl-Setup-0.5.0.exe`, and launches the installer. This requires an internet connection and can take a while.
-4. Complete the installer. Vinyl is now a normal desktop application, with a **Vinyl desktop shortcut and Start menu entry** using the translucent V icon. Double-click the app icon to launch it—no script, development tools, or terminal needed after installation.
+**The first upgrade from Vinyl v0.5 to v0.6 must be installed manually once.** v0.5 cannot discover an update because it was built without a release feed. The v0.6 installer keeps the same Windows app ID (`app.vinyl.browser`) and user data location; install it using the same Windows account, installation scope, and location as v0.5. Do not uninstall the older app first.
 
-If you prefer separate steps, double-click `BUILD_WINDOWS.bat` and then run `dist/Vinyl-Setup-0.5.0.exe`. Neither script is itself a browser; they generate the Windows installer. **The downloadable ZIP does not include a precompiled `.exe`.** This build was not compiled or tested on Windows in the development environment.
+Once Vinyl has been installed **from a GitHub Releases build with an update channel**, it checks for newer published releases at startup and every six hours. It downloads eligible updates, then shows **Restart to update** in Settings → About Vinyl. Selecting that button replaces the installed application files and reopens Vinyl. Your desktop/Start shortcuts continue pointing to Vinyl.
 
-### Updates without losing your bookmarks
+Vinyl's saved bookmarks, settings, Chrome profile link, and browser session data live separately from the installed application, normally under `%APPDATA%\Vinyl`. They are not intentionally removed by app upgrades. Back up that folder before the first updater-enabled upgrade because Windows installation and update handling have not been verified end-to-end in this environment.
 
-For subsequent releases, increase `version` in `package.json` (for example, `0.5.0` to `0.6.0`). The `BUILD_WINDOWS.bat` and `INSTALL_VINYL.bat` scripts now read the version automatically rather than referring to a fixed installer filename. Build the new `Vinyl-Setup-<version>.exe`, close Vinyl, and run the installer over the existing installation using the **same Windows user, installer scope, and installation location**. Do not uninstall the old application first.
+Auto-update downloads may temporarily consume disk space until applied. Old standalone installers and `dist/` build outputs can be deleted once no longer needed. Automatic updates do not create an additional Vinyl installation for each version.
 
-If building on GitHub, commit the project to a repository (including `.github/workflows/windows-build.yml`, `assets`, and `package.json`), then download the Windows installer from the **Actions** run's `Vinyl-Windows-Installer` artifact. It is a build artifact, not an automatic update. The `.gitignore` excludes `dist/`, Electron dependencies, local browser profiles, and credentials. Commit `package-lock.json` when npm generates it for reproducible builds.
+## Publish updates using GitHub Actions
 
+The update channel requires a **public GitHub repository** where Vinyl installers and update metadata (`latest.yml`) are published as release assets. Private GitHub repositories are not a suitable public update feed without special client-side credentials.
 
-The installer uses the same app ID (`app.vinyl.browser`) and data directory on subsequent versions. Vinyl bookmarks, settings, imported Chrome folders, browser cookies, and the configured account identity are stored separately from installed application files, normally at `%APPDATA%\Vinyl` on Windows. To update, install a newer Vinyl Setup `.exe` over the current version. Do not delete that user data folder. Existing install shortcuts will still work.
+1. Put the **contents of `Vinyl-browser`** at the root of your GitHub repository, so that `package.json` and `.github/workflows/windows-build.yml` are at the repository root.
+2. Commit the project to `main`. A push to `main` produces a test installer under Actions, but **does not publish an update**.
+3. Verify that `package.json` has a new version, starting with `0.6.0`.
+4. Tag the commit with `v0.6.0` and push that tag:
 
-Automatic online updates are prepared but **not active** until an HTTPS update feed is supplied in `update-config.json` and corresponding versioned artifacts are hosted. A GitHub Actions workflow at `.github/workflows/windows-build.yml` can build a Windows installer on a hosted Windows runner: place the project's contents at the root of a repository, run **Windows installer** in Actions, and download the generated installer artifact. Update installation still needs a reliable release channel and ideally code signing. Unsigned apps may show Windows SmartScreen warnings.
+   ```bash
+   git tag v0.6.0
+   git push origin v0.6.0
+   ```
+
+5. Open GitHub → **Actions → Vinyl Windows**. The tagged run checks that the tag and package version match, builds a Windows NSIS installer, and uploads the installer and `latest.yml` as assets of a **draft GitHub Release**.
+6. Open GitHub → **Releases** and **Publish release** after inspecting the generated artifacts. Draft releases are invisible to Vinyl's updater. The published release must be public.
+7. Download `Vinyl-Setup-0.6.0.exe` from the published release and run it **once** over your existing installation. Afterwards, future published versions can be installed using Vinyl's update prompt.
+
+For every later release, change the version in `package.json` (for example `0.7.0`), commit and push your changes, tag the matching commit `v0.7.0`, and publish the draft release once its Actions build succeeds. Installed Vinyl checks for it automatically.
+
+**Do not rename the application ID or the product name** between releases; keep using the Windows NSIS installer and the same installation scope. Ideally, sign all releases with the same Windows code-signing certificate. Unsigned applications can trigger Windows SmartScreen warnings. Publishing a new version does not automatically migrate Chrome profile cookies or add Chrome Sync.
+
+## Local Windows installation and builds
+
+1. Extract the Vinyl project on Windows.
+2. Install Node.js 22+ from https://nodejs.org/ if necessary; this is required for building, but **not** for using the installed app.
+3. If you're creating a local installer that should receive GitHub updates, open `update-config.json` and set `githubRepository` to your public `owner/repository` (for example `yourname/vinyl`). In GitHub Actions this is populated automatically from the repository, so no manual edit is required for CI builds.
+4. Double-click `INSTALL_VINYL.bat` to install dependencies, check sources, build the installer, and launch it. Alternatively, run `BUILD_WINDOWS.bat`, then open the installer from `dist/`.
+
+The ZIP is **source code**, not a compiled `.exe`. The Windows installer has not been produced or verified in this environment. If you install a locally built version with no update repository configured, that installation cannot receive future in-app updates; use the signed or unsigned installer from the GitHub Releases build instead.
+
+## Update architecture
+
+- Build: `electron-builder` Windows NSIS target with app ID `app.vinyl.browser`
+- Publication: GitHub Actions, `npm run publish:win`, GitHub Releases draft assets
+- Metadata: electron-builder generates `latest.yml` and the installed app's `app-update.yml`
+- Client: `electron-updater` with background checks and downloads, explicit Restart to update
+- Application data: remains in Electron's user data folder, separate from installed executables
+- Channel configuration: on CI, `GITHUB_REPOSITORY`; locally, `update-config.json` / `VINYL_GITHUB_REPOSITORY`
+- Safety: no arbitrary update URLs or untrusted IPC destinations; release tags must match `package.json`
+
+The installer is not currently code-signed. Before using Vinyl as a serious daily browser or distributing to others, test the upgrade and rollback process on Windows and add Windows code signing.
 
 ## Branding and browser UI
 
@@ -57,13 +90,14 @@ The separate **Vinyl account connection** below the website buttons uses Google'
 
 ## Security and scope
 
-Vinyl is a prototype, not a production-hardened browser. Avoid banking, sensitive passwords, or other high-stakes accounts in it. This version intentionally does not load browser extensions. Chromium's private Chrome Sync integrations and Chrome settings parity are not available. The optional updater still needs a hosted release feed, and live Windows installation / Google website authentication have not been verified.
+Vinyl is a prototype, not a production-hardened browser. Avoid banking, sensitive passwords, or other high-stakes accounts in it. This version intentionally does not load browser extensions. Chromium's private Chrome Sync integrations and Chrome settings parity are not available. The updater requires a published GitHub Releases channel. Windows installation, real in-app upgrades, and live Google website authentication have not been verified in this environment.
 
 ## Source commands
 
 - `npm install` — fetch dependencies
 - `npm run check` — syntax checks and unit tests
 - `npm start` — development launch
-- `npm run build:win` — build Windows NSIS installer
+- `npm run build:win` — build Windows NSIS installer without publishing
+- `npm run publish:win` — build and publish a draft GitHub release installer and metadata (requires a GitHub repository and release token)
 - `python tests/preview.py` — test the UI layout in headless Chromium (requires Playwright and its browser)
 

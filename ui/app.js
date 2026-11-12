@@ -321,7 +321,7 @@ function renderSettings() {
       <div class="setting-row"><div class="setting-info"><div class="setting-title">Import bookmarks HTML</div><div class="setting-detail">Use a Chrome-exported HTML file, including from another computer.</div></div><button class="settings-action" data-action="import-html">Choose file</button></div></div>
       <div class="settings-fineprint">Chrome remains unchanged. Importing again creates another folder. Cookies, passwords, and active Chrome extensions are not imported.</div>`;
   } else {
-    main.innerHTML = `<h1 class="settings-title">About Vinyl</h1><div class="settings-lead">Standalone Chromium-powered desktop browser prototype.</div><div class="settings-group"><div class="setting-row"><div class="setting-info"><div class="setting-title">Vinyl</div><div class="setting-detail">Version 0.5.0 — prototype</div></div></div><div class="setting-row"><div class="setting-info"><div class="setting-title">Browser engine</div><div class="setting-detail">Electron Chromium runtime. This is not yet a source-level Chromium fork.</div></div></div><div class="setting-row"><div class="setting-info"><div class="setting-title">Chrome compatibility</div><div class="setting-detail">Native extensions are not supported in Vinyl; future integrations will be browser features.</div></div></div></div>${updateSettingsHTML()}`;
+    main.innerHTML = `<h1 class="settings-title">About Vinyl</h1><div class="settings-lead">Standalone Chromium-powered desktop browser prototype.</div><div class="settings-group"><div class="setting-row"><div class="setting-info"><div class="setting-title">Vinyl</div><div class="setting-detail">Version ${escapeHTML(ui.state.updates?.version || '0.6.0')} — prototype</div></div></div><div class="setting-row"><div class="setting-info"><div class="setting-title">Browser engine</div><div class="setting-detail">Electron Chromium runtime. This is not yet a source-level Chromium fork.</div></div></div><div class="setting-row"><div class="setting-info"><div class="setting-title">Chrome compatibility</div><div class="setting-detail">Native extensions are not supported in Vinyl; future integrations will be browser features.</div></div></div></div>${updateSettingsHTML()}`;
   }
 }
 function googleAccountSettings() {
@@ -342,9 +342,22 @@ function googleAccountSettings() {
     <div class="settings-fineprint">Vinyl requests basic profile information for its OAuth connection. No Chrome data or site authentication cookies are obtained by connecting an account here.</div>`;
 }
 function updateSettingsHTML() {
-  const updates = ui.state?.updates || {state:'unconfigured',message:'Update feed not configured.'};
+  const updates = ui.state?.updates || {state:'unconfigured',message:'Updates are not configured.',version:''};
   const ready = updates.state === 'ready';
-  return `<h2 class="settings-subtitle">Software updates</h2><div class="settings-group"><div class="setting-row"><div class="setting-info"><div class="setting-title">Update status</div><div class="setting-detail">${escapeHTML(updates.message)}</div></div><button class="settings-action ${ready ? 'primary-button' : ''}" data-action="${ready ? 'update-install' : 'update-check'}">${ready ? 'Restart to update' : 'Check now'}</button></div></div><div class="settings-fineprint">Automatic checks start only after an HTTPS update server is configured and Vinyl is installed. Your bookmarks, linked Chrome profile, app preferences, and session data live separately from the application files.</div>`;
+  const busy = updates.state === 'downloading' || updates.state === 'checking';
+  const progress = Math.max(0, Math.min(100, Math.round(Number(updates.progress) || 0)));
+  const progressDisplay = updates.state === 'downloading'
+    ? `<div class="update-progress" role="progressbar" aria-label="Downloading update" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}"><div class="update-progress-fill" style="width:${progress}%"></div></div>`
+    : '';
+  const control = ready
+    ? `<button class="settings-action primary-button" data-action="update-install">Restart to update</button>`
+    : `<button class="settings-action" data-action="update-check" ${busy || updates.state === 'unconfigured' ? 'disabled' : ''}>${busy ? (updates.state === 'downloading' ? `${progress}%` : 'Checking…') : 'Check now'}</button>`;
+  return `<h2 class="settings-subtitle">Software updates</h2>
+    <div class="settings-group"><div class="setting-row"><div class="setting-info">
+      <div class="setting-title">Vinyl ${escapeHTML(updates.version || '')}</div>
+      <div class="setting-detail" aria-live="polite">${escapeHTML(updates.message)}</div>${progressDisplay}
+      </div>${control}</div></div>
+    <div class="settings-fineprint">Installed GitHub Releases builds check automatically at startup and every six hours. When an update is downloaded, select Restart to update. Your bookmarks and browser data stay in Vinyl's user profile, separate from application files.</div>`;
 }
 function revealToolbar() {
   clearTimeout(toolbarTimer);

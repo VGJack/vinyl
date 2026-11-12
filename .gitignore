@@ -61,3 +61,6 @@ Desktop.ini
 # Release archives (source snapshots belong in Git; binaries in Releases/Actions)
 *.zip
 *.7z
+
+# Generated UI previews
+/preview-*.png
