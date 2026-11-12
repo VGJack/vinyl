@@ -1,0 +1,37 @@
+'use strict';
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { Store } = require('../store');
+const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vinyl-store-test-'));
+try {
+  const store = new Store(directory);
+  assert.equal(store.data.settings.theme, 'light');
+  store.setSetting('theme', 'dark');
+  assert.throws(() => store.setSetting('theme', 'banana'));
+  const folder = store.addFolder({title:'Learning'});
+  const bookmark = store.addBookmark({title:'Example',url:'https://example.com/',folderId:folder.id});
+  assert.equal(store.find(bookmark.id).parent.id,folder.id);
+  store.togglePin(bookmark.id);
+  assert.equal(store.find(bookmark.id).node.pinned,true);
+  store.updateBookmark({id:bookmark.id,title:'New title'});
+  store.moveBookmark(bookmark.id,null);
+  assert.equal(store.find(bookmark.id).parent,null);
+  assert.throws(() => store.moveBookmark(folder.id,folder.id));
+  const extra = store.addFolder({ title:'Inner',folderId:folder.id });
+  assert.throws(() => store.moveBookmark(folder.id,extra.id));
+  assert.equal(new Store(directory).data.settings.theme,'dark');
+  store.importChromeTree([{type:'folder',name:'Imported',children:[{type:'url',name:'Search',url:'https://search.example/'}]}]);
+  assert(store.data.bookmarks.some(item => item.title === 'Imported'));
+  store.importBookmarkTree([{title:'',url:'https://untitled.example/'}],'Untitled test');
+  const blankFolder = store.data.bookmarks.at(-1);
+  assert.equal(blankFolder.children[0].title,'');
+  store.recordRecent({url:'https://example.com/',title:'Example',favicon:''});
+  assert.equal(new Store(directory).data.recentTabs[0].url,'https://example.com/');
+  store.setSetting('showHomeNews',false);
+  assert.equal(new Store(directory).data.settings.showHomeNews,false);
+  store.removeBookmark(bookmark.id);
+  assert.equal(store.find(bookmark.id),null);
+  console.log('Vinyl store tests passed.');
+} finally { fs.rmSync(directory,{recursive:true,force:true}); }

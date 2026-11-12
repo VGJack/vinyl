@@ -1,0 +1,10 @@
+'use strict';
+const assert = require('node:assert/strict');
+const { isDesktopClientId, challenge, cleanProfile } = require('../google-account');
+assert.equal(isDesktopClientId('12345678901234567890-abcdefghijkl.apps.googleusercontent.com'), true);
+assert.equal(isDesktopClientId('random-secret'), false);
+assert.equal(isDesktopClientId(''), false);
+assert.equal(challenge('test'), 'n4bQgYhMfWWaL-qgxVrQFaO_TxsrC4Is0V1sFbDwCgg');
+assert.deepEqual(cleanProfile({sub:'123',email:'user@example.com',name:'User',picture:'https://example.com/a.png'}), {id:'123',email:'user@example.com',name:'User',picture:'https://example.com/a.png'});
+assert.throws(() => cleanProfile({ email:'missing-sub@example.com' }));
+console.log('Google OAuth helper tests passed');

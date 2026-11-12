@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https: data:; connect-src 'none'; object-src 'none'; base-uri 'none'"/>
+  <title>Vinyl</title>
+  <link rel="icon" href="../assets/logo.svg" type="image/svg+xml"/>
+  <link rel="stylesheet" href="./styles.css"/>
+</head>
+<body data-theme="light" data-accent="blue" data-shelf="closed">
+  <div id="launch-splash" class="launch-splash" aria-label="Launching Vinyl">
+    <div class="splash-lockup">
+      <svg class="material-emblem" viewBox="0 0 256 256" role="img" aria-label="Vinyl V logo">
+        <defs>
+          <linearGradient id="splash-glass" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff"/><stop offset="1" stop-color="#e8f3f7"/></linearGradient>
+          <linearGradient id="splash-left" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff" stop-opacity=".96"/><stop offset=".27" stop-color="#c5eaff" stop-opacity=".88"/><stop offset="1" stop-color="#73b9e9" stop-opacity=".84"/></linearGradient>
+          <linearGradient id="splash-right" x1="1" y1="0" x2="0" y2="1"><stop stop-color="#fff" stop-opacity=".96"/><stop offset=".27" stop-color="#c1f0e7" stop-opacity=".85"/><stop offset="1" stop-color="#6bbcc1" stop-opacity=".8"/></linearGradient>
+          <linearGradient id="splash-fold" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff" stop-opacity=".92"/><stop offset="1" stop-color="#a4d3e9" stop-opacity=".56"/></linearGradient>
+          <filter id="splash-shadow" x="-40%" y="-40%" width="180%" height="180%"><feDropShadow dx="0" dy="9" stdDeviation="9" flood-color="#295574" flood-opacity=".12"/></filter>
+        </defs>
+        <g filter="url(#splash-shadow)">
+          <rect class="splash-plate" x="12" y="12" width="232" height="232" rx="62" fill="url(#splash-glass)" stroke="#fff" stroke-width="7"/>
+          <g class="splash-arm splash-arm-left">
+            <path d="M42 58c-3-7 3-14 11-14h38c6 0 10 4 12 9l43 106-18 48c-2 5-7 9-13 9h-9c-6 0-10-4-13-10Z" fill="url(#splash-left)" stroke="#fff" stroke-opacity=".95" stroke-width="6" stroke-linejoin="round"/>
+            <path d="M42 58c-3-7 3-14 11-14h38c6 0 10 4 12 9l5 14H57c-7 0-11-2-15-9" fill="url(#splash-fold)" stroke="#fff" stroke-width="2" stroke-opacity=".7"/>
+          </g>
+          <g class="splash-arm splash-arm-right">
+            <path d="M211 58c3-7-3-14-11-14h-38c-6 0-10 4-12 9l-43 106 18 48c2 5 7 9 13 9h9c6 0 10-4 13-10Z" fill="url(#splash-right)" stroke="#fff" stroke-opacity=".95" stroke-width="6" stroke-linejoin="round"/>
+            <path d="M211 58c3-7-3-14-11-14h-38c-6 0-10 4-12 9l-5 14h51c7 0 11-2 15-9" fill="url(#splash-fold)" stroke="#fff" stroke-width="2" stroke-opacity=".7"/>
+          </g>
+          <path class="splash-overlap" d="M125 195l-5 12c-3 7-5 9-11 9h-3c-6 0-10-4-13-10l-6-15 20-32Z" fill="#c9e7f2" fill-opacity=".58"/>
+        </g>
+      </svg>
+    </div>
+  </div>
+  <div id="shell">
+    <header class="tabstrip">
+      <div class="brand" aria-label="Vinyl">
+        <img src="../assets/logo.svg" alt=""/>
+      </div>
+      <button class="shelf-toggle tab-shelf-toggle" id="shelf-open" title="Bookmarks (Ctrl+Shift+B)" aria-label="Open bookmarks" aria-expanded="false"></button>
+      <div class="tablist" id="tabs" role="tablist"></div>
+      <button class="icon-button newtab-button" id="newtab" title="New tab (Ctrl+T)" aria-label="New tab"></button>
+      <div class="title-drag-region"></div>
+      <button class="icon-button toolbar-pin" id="toolbar-pin" title="Pin or retract address bar" aria-label="Pin or retract address bar"></button>
+      <button id="more-menu" class="icon-button settings-top" title="Settings" aria-label="Settings"></button>
+      <div class="window-controls" aria-label="Window controls">
+        <button id="window-min" class="window-control" title="Minimize" aria-label="Minimize"></button>
+        <button id="window-max" class="window-control" title="Maximize or restore" aria-label="Maximize or restore"></button>
+        <button id="window-close" class="window-control close-control" title="Close Vinyl" aria-label="Close"></button>
+      </div>
+    </header>
+    <div class="toolbar">
+      <div class="navigation">
+        <button class="icon-button" id="back" title="Back (Alt+Left)" aria-label="Back"></button>
+        <button class="icon-button" id="forward" title="Forward (Alt+Right)" aria-label="Forward"></button>
+        <button class="icon-button" id="reload" title="Reload (Ctrl+R)" aria-label="Reload"></button>
+      </div>
+      <div class="address-field" id="address-field">
+        <span class="address-lock" id="address-icon"></span>
+        <input id="address" autocomplete="off" spellcheck="false" placeholder="Search or enter a website address" aria-label="Address or search"/>
+        <button id="bookmark-current" class="icon-button small-icon" title="Bookmark this page (Ctrl+D)" aria-label="Bookmark this page"></button>
+      </div>
+
+    </div>
+    <div class="workspace" id="workspace">
+      <aside class="shelf" id="shelf" aria-label="Vinyl shelf" inert>
+        <div class="shelf-head">
+          <div class="shelf-heading" id="shelf-heading">Bookmarks</div>
+          <button class="icon-button" id="close-shelf" aria-label="Close shelf" title="Close shelf"></button>
+        </div>
+        <div class="shelf-content" id="shelf-content"></div>
+
+      </aside>
+      <main class="page-viewport" id="pageViewport">
+        <div id="settings-page" class="settings-page" hidden>
+          <div class="settings-layout">
+            <nav class="settings-nav" id="settings-nav" aria-label="Settings sections">
+              <div class="settings-nav-title">Settings</div>
+              <button class="settings-nav-item current" data-settings-section="appearance">Appearance</button>
+              <button class="settings-nav-item" data-settings-section="browser">Browser</button>
+              <button class="settings-nav-item" data-settings-section="privacy">Privacy</button>
+              <button class="settings-nav-item" data-settings-section="account">Accounts</button>
+              <button class="settings-nav-item" data-settings-section="chrome">Chrome data</button>
+              <button class="settings-nav-item" data-settings-section="about">About Vinyl</button>
+            </nav>
+            <div class="settings-scroll" id="settings-scroll"><div class="settings-main" id="settings-main"></div></div>
+          </div>
+        </div>
+        <div class="home" id="home"><div class="home-material-roll" aria-hidden="true"><span class="roll-tube"></span><span class="roll-sheet"></span></div>
+          <div class="home-content">
+            <div class="home-intro home-reveal" style="--delay:0ms">
+              <div class="home-greeting">
+                <span class="home-dateline" id="home-date"></span>
+                <h1 id="home-greeting">Good morning, Jack<span class="period">.</span></h1>
+              </div>
+              <div class="home-time" aria-label="Current local time"><span id="home-clock">--:--</span><span class="home-ampm" id="home-ampm"></span></div>
+            </div>
+            <div class="home-search home-reveal" style="--delay:110ms" id="home-search">
+              <span id="home-search-icon"></span>
+              <input type="text" id="home-address" placeholder="Search or enter a URL" aria-label="Search the web"/>
+              <div class="keycap">↵</div>
+            </div>
+            <div class="home-shortcuts home-reveal" style="--delay:180ms" id="home-shortcuts"></div>
+            <div class="home-section home-reveal" style="--delay:260ms" id="recent-block">
+              <div class="home-section-head"><h2>Recent tabs</h2></div>
+              <div class="recent-tabs" id="home-recents"></div>
+            </div>
+            <div class="home-lower home-reveal" style="--delay:340ms">
+              <section class="home-news" id="news-block" aria-label="Current news">
+                <div class="home-section-head"><h2>Today</h2><button class="home-text-action" data-action="refresh-news" title="Refresh news">Refresh</button></div>
+                <div id="home-news-items" class="home-news-items"><p class="home-empty">Loading news…</p></div>
+              </section>
+              <section class="home-weather" id="weather-block" aria-label="Local weather">
+                <div class="home-section-head"><h2>Weather</h2><button class="home-text-action" data-action="weather-location" title="Change weather city">City</button></div>
+                <div id="home-weather-content" class="home-weather-content"><p class="home-empty">Choose a city</p></div>
+              </section>
+            </div>
+          </div>
+          
+        </div>
+      </main>
+    </div>
+  </div>
+  <div id="context-menu" class="context-menu hidden"></div>
+  <div id="modal-root"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="./app.js" defer></script>
+</body>
+</html>
