@@ -395,7 +395,7 @@ function updateSettingsHTML() {
       <div class="setting-title">Vinyl ${escapeHTML(updates.version || '')}</div>
       <div class="setting-detail" aria-live="polite">${escapeHTML(updates.message)}</div>${progressDisplay}
       </div>${control}</div></div>
-    <div class="settings-fineprint">Installed GitHub Releases builds check automatically at startup and every six hours. When an update is downloaded, select Restart to update. Your bookmarks and browser data stay in Vinyl's user profile, separate from application files.</div>`;
+    <div class="settings-fineprint">Vinyl checks for new builds at startup and every five minutes, then downloads them automatically. When a download finishes, select Restart to update. Your bookmarks and browser data are preserved.</div>`;
 }
 function hideToolbar() {
   if ($('.toolbar').contains(document.activeElement)) $('#dock-handle').focus({preventScroll:true});

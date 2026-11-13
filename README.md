@@ -1,10 +1,10 @@
-# Vinyl 0.7.2
+# Vinyl 0.7.3
 
 Vinyl is an Electron browser with a sculpted glass home page, detachable tabs, a bottom navigation dock, and an attached bookmark drawer.
 
 ## Install this version
 
-Run `dist/Vinyl-Setup-0.7.2.exe` using the same Windows account as your existing copy. A stale per-user registration whose folder is missing is recovered to `%LOCALAPPDATA%\Programs\Vinyl`. Existing live installation locations are preserved. The application ID remains `app.vinyl.browser`; bookmarks, preferences, and site data stay in the existing user profile.
+Run `dist/Vinyl-Setup-0.7.3.exe` using the same Windows account as your existing copy. A stale per-user registration whose folder is missing is recovered to `%LOCALAPPDATA%\Programs\Vinyl`. Existing live installation locations are preserved. The application ID remains `app.vinyl.browser`; bookmarks, preferences, and site data stay in the existing user profile.
 
 A local 0.6 build with an empty update configuration needs this manual upgrade once. The 0.7 installer embeds the `VGJack/vinyl` GitHub update feed. The published `v0.6` release had no installer or `latest.yml` assets when checked, so there was nothing for an updater to download.
 
@@ -20,9 +20,9 @@ A local 0.6 build with an empty update configuration needs this manual upgrade o
 
 ## Automatic updates
 
-`update-config.json` now defaults to `VGJack/vinyl`. `VINYL_GITHUB_REPOSITORY` or the CI `GITHUB_REPOSITORY` can override it. Packaged builds check at startup and every six hours, download newer published releases, and offer Restart to update in Settings → About Vinyl.
+Push to `main` to ship an update. GitHub Actions runs the checks, versions and builds the installer, then makes the complete download available automatically. You do not need to bump versions, create tags, fill out release pages, or upload files. Installed Vinyl checks at startup and every five minutes, downloads newer builds automatically, and offers Restart to update in Settings → About Vinyl.
 
-An updater-enabled installer is only half of the setup: the public release must contain the corresponding Windows installer, `.blockmap`, and `latest.yml`. Draft releases and GitHub's generated source ZIPs are not updates. See [GITHUB_RELEASES_SETUP.md](GITHUB_RELEASES_SETUP.md) for the exact publication steps.
+`update-config.json` points to `VGJack/vinyl`. The workflow manages GitHub's installer hosting internally and verifies the installer, `.blockmap`, and `latest.yml` before exposing a build to installed browsers. Failed builds leave the previous update available. See [GITHUB_RELEASES_SETUP.md](GITHUB_RELEASES_SETUP.md) for how push-to-update works. Update failures show a short message in Settings, not a raw server response or stack trace.
 
 Before removing an old version, setup checks that the destination and existing uninstaller can be written. It stops with an actionable message for a protected directory or locked uninstaller. The installer checks the exact `Vinyl.exe` in the selected installation directory. It requests a normal close, then stops remaining processes from that copy if necessary. It does not treat setup/uninstaller executables in the same folder as the running application or stop a separate installation. The updater launches the installer silently and restarts Vinyl; shutdown explicitly closes all browser views.
 
@@ -37,6 +37,6 @@ The repository root is this `vinyl` folder (the folder containing `package.json`
 - `npm run test:installer-location` — compiles an isolated NSIS test to verify missing-folder recovery, preserving an existing installation path, and rejecting a locked uninstaller before replacement.
 - `npm run test:runtime` — Electron integration checks; requires Playwright available as `playwright` or via `VINYL_PLAYWRIGHT`. Uses a fresh isolated profile under `tmp`, not your installed browser data. Exercises manual drawer visibility/Ctrl+L, pointer reordering, stable section switching and external/internal shelf placement, live tab transfer/history/form data, closing the source window, independent windows, Google website sign-in entry, and renderer errors.
 - `npm run build:win` — build a local NSIS installer with the update feed, without publishing.
-- `npm run publish:win` — build assets for a draft GitHub Release, with a release token.
+- `npm run test:updater-runtime` — verifies the update button, readable errors, and retry behavior in an isolated Electron profile. Add `-- --live` for a read-only check against the public update feed.
 
 The application is not code-signed. Building an installer and passing isolated tests does not establish that an update from your particular installed copy has completed successfully. A real download/install/relaunch cycle from a published release still needs validation.
