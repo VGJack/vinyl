@@ -1,7 +1,7 @@
 {
   "name": "vinyl-browser",
   "productName": "Vinyl",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "Vinyl browser with sculpted glass controls, detachable tabs, an outward bookmark drawer and GitHub updates",
   "private": true,
   "main": "main.js",
@@ -36,7 +36,6 @@
       "home-data.js",
       "chrome-bridge.js",
       "import-bookmarks.js",
-      "google-account.js",
       "updates.js",
       "update-config.json",
       "preload.js",

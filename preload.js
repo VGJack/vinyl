@@ -8,7 +8,7 @@ const allowed = new Set([
   'bookmark:add', 'bookmark:addFolder', 'bookmark:remove', 'bookmark:update',
   'bookmark:pin', 'bookmark:move', 'bookmark:open', 'bookmark:importChrome', 'bookmark:importHTML',
   'home:feed', 'home:setWeatherCity', 'settings:set', 'chrome:link', 'chrome:unlink', 'chrome:refresh', 'app:about',
-  'google:setClientId', 'google:signIn', 'google:signOut', 'google:openWebsite', 'updates:check', 'updates:install'
+  'google:openWebsite', 'updates:check', 'updates:install'
 ]);
 contextBridge.exposeInMainWorld('vinyl', {
   invoke: (channel, payload) => {

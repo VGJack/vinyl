@@ -38,8 +38,16 @@ const server = http.createServer((req,res) => {
     assert.equal(maskHeights[2],190);
     await page.waitForTimeout(2900);
     const invoke=(name,payload)=>page.evaluate(([n,p])=>window.vinyl.invoke(n,p),[name,payload]);
-    await invoke('settings:set',{key:'addressBarMode',value:'always'});
-    await page.waitForTimeout(350);
+    assert.equal((await invoke('app:state')).settings.addressBarMode,'always');
+    await page.mouse.move(700,400);
+    await page.waitForTimeout(3000);
+    assert.equal(await page.locator('.toolbar').isVisible(),true,'controls do not auto-hide');
+    assert.equal(await page.locator('.tab-title').first().innerText(),'Home');
+    assert.equal(await page.locator('#toolbar-pin').count(),0);
+    assert.equal(await page.locator('.toolbar #more-menu').count(),0);
+    const settingsBounds=await page.locator('#more-menu').boundingBox(), minimizeBounds=await page.locator('#window-min').boundingBox();
+    assert.ok(settingsBounds.x < minimizeBounds.x && Math.abs(settingsBounds.y-minimizeBounds.y)<8);
+
     assert.equal(await page.locator('.home-grid > section').count(),4);
     assert.equal(await page.locator('.home-eyebrow').count(),0);
     assert.equal(await page.locator('.news-card').count(),4);
@@ -50,17 +58,25 @@ const server = http.createServer((req,res) => {
     await page.click('[data-modal-cancel]');
     await page.click('[data-view="daily"]');
     assert.equal(await page.locator('.forecast-item').count(),7);
-    await page.screenshot({path:path.join(root,'preview-forecast-v071.png')});
+    await page.screenshot({path:path.join(root,'preview-forecast-v072.png')});
     await page.keyboard.press('Escape');
     const toolbar = await page.locator('.toolbar').boundingBox();
     const viewport = await page.locator('#pageViewport').boundingBox();
     assert.ok(toolbar.y > viewport.y+viewport.height-2,'navigation is below content');
-    await page.screenshot({path:path.join(root,'preview-home-v071.png')});
-    await page.click('#dock-hide');
+    await page.screenshot({path:path.join(root,'preview-home-v072.png')});
+    await page.click('#dock-handle');
     await page.waitForTimeout(300);
     assert.equal(await page.locator('.toolbar').isVisible(),false);
-    assert.equal(await page.locator('#dock-handle span').count(),0);
-    await page.screenshot({path:path.join(root,'preview-hidden-v071.png')});
+    assert.equal(await page.locator('#dock-handle').isVisible(),true);
+    assert.equal(await page.locator('#dock-handle').getAttribute('aria-expanded'),'false');
+    await page.locator('#dock-handle').hover();
+    await page.waitForTimeout(400);
+    assert.equal(await page.locator('.toolbar').isVisible(),false,'hover does not reopen collapsed controls');
+    await page.screenshot({path:path.join(root,'preview-hidden-v072.png')});
+    await page.click('#dock-handle');
+    await page.waitForTimeout(300);
+    assert.equal(await page.locator('.toolbar').isVisible(),true);
+    assert.equal(await page.locator('#dock-handle').getAttribute('aria-expanded'),'true');
     await page.keyboard.press('Control+l');
     await page.waitForFunction(()=>document.activeElement.id==='address');
     const initial=(await invoke('app:state')).activeId;
@@ -82,25 +98,44 @@ const server = http.createServer((req,res) => {
     const main=geometry.find(w=>!w.shelf),drawer=geometry.find(w=>w.shelf);
     assert.equal(drawer.bounds.x+drawer.bounds.width,main.bounds.x+1);
     assert.equal(drawer.visible,true);
+    await app.evaluate(({BrowserWindow})=>{
+      const drawer=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('surface=shelf'));
+      globalThis.drawerChanges=[];
+      for(const event of ['resize','hide','show']) drawer.on(event,()=>globalThis.drawerChanges.push(event));
+    });
     await shelf.click('[data-section="toggles"]');
     await shelf.waitForSelector('.toggles-empty');
     assert.equal(await shelf.locator('#shelf-content button,#shelf-content input').count(),0);
     assert.equal((await invoke('app:state')).shelfSection,'toggles');
-    await shelf.screenshot({path:path.join(root,'preview-toggles-v071.png')});
+    await shelf.screenshot({path:path.join(root,'preview-toggles-v072.png')});
     await shelf.click('[data-section="bookmarks"]');
+    for (let i=0;i<3;i++) {await shelf.click('[data-section="toggles"]');await shelf.click('[data-section="bookmarks"]');}
+    await page.waitForTimeout(350);
+    assert.deepEqual(await app.evaluate(()=>globalThis.drawerChanges),[],'switching sections never resizes or hides the drawer');
     await shelf.screenshot({path:path.join(root,'preview-shelf-v07.png')});
     await invoke('window:maximize');await page.waitForTimeout(350);
     assert.equal((await invoke('app:state')).shelfExternal,false);
     assert.ok((await page.locator('#shelf').boundingBox()).width > 250);
     await invoke('window:maximize');await invoke('window:shelf',{open:false});
-    await invoke('settings:set',{key:'addressBarMode',value:'auto'});
-    await page.locator('#toolbar-pin').blur();
-    await page.mouse.move(500,220);
-    await page.locator('.toolbar').dispatchEvent('mouseleave');
-    await page.waitForFunction(()=>document.body.dataset.toolbarVisible === 'false');
+    await page.click('#dock-handle');
+    await page.waitForTimeout(300);
+    assert.equal(await page.locator('.toolbar').isVisible(),false);
+    await page.click('#more-menu');
+    assert.equal(await page.locator('#settings-page').isVisible(),true);
+    assert.equal(await page.locator('.toolbar').isVisible(),false,'Settings does not reopen the bottom drawer');
+    // CDP keyboard events bypass Electron's native before-input-event handler.
+    await app.evaluate(({BrowserWindow})=>{
+      const wc=BrowserWindow.getAllWindows().find(w=>!w.webContents.getURL().includes('surface=shelf')).webContents;
+      wc.sendInputEvent({type:'keyDown',keyCode:'T',modifiers:['control']});
+      wc.sendInputEvent({type:'keyUp',keyCode:'T',modifiers:['control']});
+    });
+    await page.waitForFunction(()=>document.activeElement.id==='home-address');
+    assert.equal(await page.locator('.toolbar').isVisible(),false,'opening Home preserves collapsed controls');
+    const extras=(await invoke('app:state')).tabs.filter(t=>t.id!==initial&&t.id!==second);
+    for(const tab of extras) await invoke('browser:close',{id:tab.id});
+    await invoke('browser:activate',{id:second});
     await page.keyboard.press('Control+l');
-    await page.waitForFunction(()=>document.activeElement.id === 'address' && document.body.dataset.toolbarVisible === 'true');
-    await invoke('settings:set',{key:'addressBarMode',value:'always'});
+    await page.waitForFunction(()=>document.activeElement.id==='address');
     const url=`http://127.0.0.1:${server.address().port}/`;
     await invoke('browser:navigate',{address:url});
     await page.waitForTimeout(600);
@@ -123,8 +158,17 @@ const server = http.createServer((req,res) => {
     await other.evaluate(()=>window.vinyl.invoke('browser:newTab'));
     assert.equal((await invoke('app:state')).tabs.length,1,'windows have independent tabs');
     await page.click('#google-profile');
-    await page.waitForSelector('#google-client-id');
-    assert.equal(await page.locator('#settings-page').isVisible(),true);
+    await page.waitForFunction(()=>window.vinyl.invoke('app:state').then(s=>s.active?.url.startsWith('https://accounts.google.com/')));
+    const googleState=await invoke('app:state');
+    assert.equal(new URL(googleState.active.url).hostname,'accounts.google.com');
+    assert.equal(await app.evaluate(({webContents,session})=>webContents.getAllWebContents().filter(w=>w.getURL().startsWith('https://accounts.google.com/')).every(w=>w.session===session.defaultSession)),true);
+    await invoke('browser:stop');
+    await invoke('browser:openSettings',{section:'account'});
+    await page.waitForSelector('[data-action="google-website"][data-site="google"]');
+    assert.equal(await page.locator('#google-client-id,[data-action="google-signin"]').count(),0);
+    assert.ok(!(await page.locator('#settings-main').innerText()).includes('OAuth'));
+    await assert.rejects(()=>invoke('google:signIn'),/Unknown Vinyl action/);
+
     await invoke('settings:set',{key:'theme',value:'dark'});
     await invoke('browser:newTab');await page.waitForTimeout(600);
     await page.screenshot({path:path.join(root,'preview-dark-v07.png')});
@@ -135,7 +179,7 @@ const server = http.createServer((req,res) => {
     await app.evaluate(({webContents},id)=>webContents.fromId(id).executeJavaScript('document.title="Transferred and still live"'),wcId);
     await other.waitForFunction(()=>document.title.includes('Transferred and still live'));
     assert.deepEqual(errors,[]);
-    console.log('Runtime checks passed: dock/retract/Ctrl+L, pointer reorder, external/internal shelf, live tab transfer/history, source close, independent windows, Google profile entry, clean renderer.');
+    console.log('Runtime checks passed: manual dock holder/no auto-hide/Ctrl+L, pointer reorder, stable shelf section switching/external/internal shelf, live tab transfer/history, source close, independent windows, Google profile entry, clean renderer.');
   } finally {
     await app.close(); server.close();
   }

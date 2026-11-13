@@ -8,6 +8,8 @@ const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vinyl-store-test-'));
 try {
   const store = new Store(directory);
   assert.equal(store.data.settings.theme, 'light');
+  assert.equal(store.data.settings.addressBarMode,'always');
+  assert.throws(()=>store.setSetting('addressBarMode','auto'));
   store.setSetting('theme', 'dark');
   assert.throws(() => store.setSetting('theme', 'banana'));
   const folder = store.addFolder({title:'Learning'});
@@ -33,5 +35,9 @@ try {
   assert.equal(new Store(directory).data.settings.showHomeNews,false);
   store.removeBookmark(bookmark.id);
   assert.equal(store.find(bookmark.id),null);
+  const saved = JSON.parse(fs.readFileSync(store.file,'utf8'));
+  saved.settings.addressBarMode='auto';
+  fs.writeFileSync(store.file,JSON.stringify(saved));
+  assert.equal(new Store(directory).data.settings.addressBarMode,'always','older auto-hide preferences migrate to manual controls');
   console.log('Vinyl store tests passed.');
 } finally { fs.rmSync(directory,{recursive:true,force:true}); }

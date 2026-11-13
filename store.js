@@ -10,7 +10,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   roundedPanels: true, softShadows: true, showLabels: true,
   largeText: false, reduceMotion: false, showHomeShortcuts: true,
   searchEngine: 'google', defaultZoom: 100, spellcheck: true, doNotTrack: false,
-  addressBarMode: 'auto', showHomeNews: true, showHomeWeather: true, showRecentTabs: true
+  addressBarMode: 'always', showHomeNews: true, showHomeWeather: true, showRecentTabs: true
 });
 
 class Store {
@@ -21,6 +21,7 @@ class Store {
       const saved = JSON.parse(fs.readFileSync(this.file, 'utf8'));
       if (saved && typeof saved === 'object') {
         this.data.settings = { ...DEFAULT_SETTINGS, ...(saved.settings || {}) };
+        if (this.data.settings.addressBarMode === 'auto') this.data.settings.addressBarMode = 'always';
         this.data.bookmarks = Array.isArray(saved.bookmarks) ? saved.bookmarks : [];
         this.data.extensions = Array.isArray(saved.extensions) ? saved.extensions : [];
         this.data.importedChrome = Boolean(saved.importedChrome);
@@ -44,7 +45,7 @@ class Store {
     const validation = {
       theme: ['light', 'dark', 'system'], accent: ['blue', 'graphite', 'sage', 'violet'],
       shelfPosition: ['left', 'right'], searchEngine:['google','duckduckgo','bing'], defaultZoom:[75,80,90,100,110,125,150],
-      addressBarMode: ['always', 'compact', 'auto']
+      addressBarMode: ['always', 'compact']
     };
     if (validation[key] && !validation[key].includes(value)) throw new Error('Invalid option');
     if (!validation[key] && typeof value !== 'boolean') throw new Error('Expected a toggle value');

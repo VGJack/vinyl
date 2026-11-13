@@ -56,14 +56,13 @@ const ui = {
   state: null, shelfOpen: false, section: 'bookmarks', folderId: null,
   bookmarkSearch: '', shortcutSearch: '',
   contextId: null, menuOpen: false, settingsSection: 'appearance', selectedChromeProfile: '',
-  toolbarRevealed: true, lastActiveURL: '', splashComplete: false, homeFeed:null, homeLoadedAt:0
+  dockHidden: false, splashComplete: false, homeFeed:null, homeLoadedAt:0
 };
 const shelfSurface = new URLSearchParams(location.search).get('surface') === 'shelf';
 document.body.dataset.surface = shelfSurface ? 'shelf' : 'browser';
 let tabDrag = null;
 let noticeTimer;
 let lastLayout = '';
-let toolbarTimer;
 const $ = selector => document.querySelector(selector);
 const invoke = (channel, payload) => window.vinyl?.invoke(channel, payload) || Promise.reject(new Error('Vinyl desktop runtime is not connected'));
 async function run(channel, payload, message) {
@@ -110,10 +109,14 @@ function applyAppearance() {
   document.body.dataset.position = 'left';
   document.body.dataset.compactTabs = String(Boolean(s.compactTabs));
   document.body.dataset.compactToolbar = String(Boolean(s.compactToolbar));
-  document.body.dataset.toolbarMode = s.addressBarMode || 'auto';
-  const dockVisible = !ui.dockHidden && ((s.addressBarMode || 'auto') !== 'auto' || ui.toolbarRevealed);
+  document.body.dataset.toolbarMode = s.addressBarMode === 'compact' ? 'compact' : 'always';
+  document.body.dataset.page = !active()?.url ? 'home' : 'web';
+  const dockVisible = !ui.dockHidden;
   document.body.dataset.toolbarVisible = String(dockVisible);
   $('.toolbar').inert = !dockVisible;
+  $('#dock-handle').setAttribute('aria-expanded',String(dockVisible));
+  $('#dock-handle').title = dockVisible ? 'Hide browser controls' : 'Show browser controls';
+  $('#dock-handle').setAttribute('aria-label',$('#dock-handle').title);
   document.body.dataset.rounded = String(s.roundedPanels !== false);
   document.body.dataset.shadows = String(s.softShadows !== false);
   document.body.dataset.labels = String(s.showLabels !== false);
@@ -130,7 +133,7 @@ function applyAppearance() {
 function renderTop() {
   if (!ui.state) return;
   const tabs = ui.state.tabs.map(tab => {
-    const title = escapeHTML(tab.title || 'New tab');
+    const title = escapeHTML(tab.title || 'Home');
     const faviconImg = tab.favicon && /^https?:\/\//.test(tab.favicon)
       ? `<img class="tab-icon" src="${escapeHTML(tab.favicon)}" alt=""/>`
       : tab.url ? favicon(tab.url, tab.title, 'tab-favicon') : '<img class="tab-icon vinyl-outline" src="../assets/logo-outline.svg" alt=""/>';
@@ -150,18 +153,9 @@ function renderTop() {
   const input = $('#address');
   if (document.activeElement !== input) input.value = tab?.url || '';
   $('#address-icon').innerHTML = icon(tab?.url?.startsWith('https://') ? 'lock' : 'search', 15);
-  const profile = ui.state.google?.profile;
-  $('#google-profile').innerHTML = profile ? `<span class="profile-initial">${escapeHTML((profile.name || profile.email || 'G').charAt(0))}</span>` : '<span class="google-letter">G</span>';
-  $('#google-profile').title = profile ? `${profile.name || profile.email} · Google profile` : 'Sign in to your Google profile';
-  $('#google-profile').setAttribute('aria-label',$('#google-profile').title);
-  $('#toolbar-pin').innerHTML = icon(settings().addressBarMode === 'auto' ? 'pin' : 'chevron',16);
-  $('#toolbar-pin').title = settings().addressBarMode === 'auto' ? 'Pin address bar' : 'Auto-retract address bar';
-  $('#toolbar-pin').setAttribute('aria-pressed',String(settings().addressBarMode !== 'auto'));
-  if (ui.lastActiveURL !== (tab?.url || '')) {
-    ui.lastActiveURL = tab?.url || '';
-    if (tab?.url !== 'vinyl://settings') scheduleToolbarRetract(1800);
-
-  }
+  $('#google-profile').innerHTML = '<span class="google-letter">G</span>';
+  $('#google-profile').title = 'Google account';
+  $('#google-profile').setAttribute('aria-label','Google account');
   const onSettings = tab?.url === 'vinyl://settings';
   $('#home').style.display = tab?.url ? 'none' : 'block';
   if (!tab?.url && ui.homeTabId !== tab?.id) {
@@ -171,7 +165,7 @@ function renderTop() {
   }
   $('#settings-page').hidden = !onSettings;
   if (onSettings) renderSettings();
-  document.title = tab?.title && tab.title !== 'New tab' ? `${tab.title} — Vinyl` : 'Vinyl';
+  document.title = tab?.title && tab.title !== 'Home' ? `${tab.title} — Vinyl` : 'Vinyl';
   renderHomeShortcuts();
   renderRecentTabs();
   updateHomeClock();
@@ -195,7 +189,7 @@ function updateHomeClock() {
   const h = now.getHours();
   const period = h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening';
   const greeting = $('#home-greeting');
-  if (greeting) greeting.innerHTML = `Good ${period}, ${escapeHTML(ui.state?.google?.profile?.name?.split(" ")[0] || "Jack")}<span class="period">.</span>`;
+  if (greeting) greeting.innerHTML = `Good ${period}, ${"Jack"}<span class="period">.</span>`;
   const time = new Intl.DateTimeFormat('en-US',{hour:'numeric',minute:'2-digit'}).formatToParts(now);
   const hour = time.find(p=>p.type==='hour')?.value || '12';
   const min = time.find(p=>p.type==='minute')?.value || '00';
@@ -294,7 +288,9 @@ function renderShelf() {
   $('#shelf-heading').textContent = ui.section === 'toggles' ? 'Toggles' : 'Bookmarks';
   $('.shelf-sections').querySelectorAll('button').forEach(button => {button.classList.toggle('selected',button.dataset.section===ui.section);button.setAttribute('aria-pressed',String(button.dataset.section===ui.section));});
   $('#toggles-open').setAttribute('aria-expanded',String(ui.shelfOpen && ui.section==='toggles'));
-  target.innerHTML = ui.section === 'toggles' ? '<div class="toggles-empty">No toggles added.</div>' : bookmarksHTML();
+  const markup = ui.section === 'toggles' ? '<div class="toggles-empty">No toggles added.</div>' : bookmarksHTML();
+  if (ui.shelfMarkup === markup) return;
+  ui.shelfMarkup = markup; target.innerHTML = markup;
   if (preserve) {
     const updated = $(`#${selected.id}`);
     updated?.focus();
@@ -340,13 +336,12 @@ const settingRows = [
     { key:'shelfEnabled', title:'Bookmark shelf', detail:'Show the integrated bookmarks drawer' },
     { key:'autoCloseShelf', title:'Close after opening', detail:'Collapse the shelf after you open a bookmark' },
     { key:'compactTabs', title:'Compact tabs', detail:'Slightly smaller tabs' },
-    { key:'addressBarMode', title:'Bottom controls', detail:'Show or automatically hide all bottom controls', options:[['always','Always visible'],['compact','Compact'],['auto','Auto-retract']] },
-    { key:'compactToolbar', title:'Compact controls', detail:'Use smaller navigation buttons and address field' },
+    { key:'addressBarMode', title:'Controls size', detail:'Use the bottom drawer handle to show or hide controls', options:[['always','Standard'],['compact','Compact']] },
     { key:'showLabels', title:'App labels', detail:'Display titles below shelf icons' },
-    { key:'showHomeShortcuts', title:'New tab shortcuts', detail:'Show your favorite websites on new tabs' },
-    { key:'showRecentTabs', title:'Recent tabs', detail:'Show four recently visited pages on new tabs' },
-    { key:'showHomeNews', title:'News on new tab', detail:'Load current headlines from Google News' },
-    { key:'showHomeWeather', title:'Weather on new tab', detail:'Display current weather for your chosen city' }
+    { key:'showHomeShortcuts', title:'Home shortcuts', detail:'Show your favorite websites on Home' },
+    { key:'showRecentTabs', title:'Recent tabs', detail:'Show four recently visited pages on Home' },
+    { key:'showHomeNews', title:'News on Home', detail:'Load current headlines from BBC News' },
+    { key:'showHomeWeather', title:'Weather on Home', detail:'Display current weather for your chosen city' }
   ],
   ['Privacy',
     { key:'doNotTrack', title:'Do Not Track request', detail:'Send a request to websites; websites may ignore it' }
@@ -382,21 +377,7 @@ function renderSettings() {
   }
 }
 function googleAccountSettings() {
-  const account = ui.state?.google || {};
-  const profile = account.profile;
-  const avatar = profile?.picture ? `<img src="${escapeHTML(profile.picture)}" alt="" class="account-avatar"/>` : `<span class="account-avatar">${icon('user',23)}</span>`;
-  return `<h1 class="settings-title">Google</h1><div class="settings-lead">Sign into Google websites using Vinyl's browser tabs.</div>
-    <div class="settings-group">
-      <div class="setting-row"><div class="setting-info"><div class="setting-title">Google websites</div><div class="setting-detail">Sign in once in Vinyl, and other tabs will share that session if Google permits it.</div></div>
-        <div class="settings-inline"><button class="settings-action primary-button" data-action="google-website" data-site="youtube">YouTube</button><button class="settings-action" data-action="google-website" data-site="gmail">Gmail</button><button class="settings-action" data-action="google-website" data-site="google">Account</button></div></div>
-    </div>
-    <div class="settings-fineprint">Google may block sign-in from embedded browsers such as Electron. Vinyl cannot use Chrome's signed-in cookies or Chrome Sync. Successful website sign-ins remain in Vinyl's separate persistent browser session.</div>
-    <h2 class="settings-subtitle">Vinyl account connection</h2>
-    <div class="settings-group">
-      ${profile ? `<div class="setting-row"><div class="setting-info account-identity">${avatar}<span><span class="setting-title">${escapeHTML(profile.name)}</span><span class="setting-detail">${escapeHTML(profile.email)}</span></span></div><button class="settings-action" data-action="google-signout">Disconnect</button></div>` : `<div class="setting-row"><div class="setting-info"><div class="setting-title">Connect a Google identity</div><div class="setting-detail">Optional OAuth connection through your system browser. This does not sign you into YouTube or Gmail in Vinyl.</div></div><button class="settings-action" data-action="google-signin">Connect</button></div>`}
-      <div class="setting-row"><div class="setting-info"><div class="setting-title">OAuth desktop client ID</div><div class="setting-detail">Only needed for Vinyl's separate account connection. Create a Desktop app client in Google Cloud.</div></div><div class="settings-inline"><input class="account-client-input" id="google-client-id" aria-label="Google OAuth desktop client ID" placeholder="...apps.googleusercontent.com" value="${escapeHTML(account.clientId || '')}"/><button class="settings-action" data-action="google-save-client">Save</button></div></div>
-    </div>
-    <div class="settings-fineprint">Vinyl requests basic profile information for its OAuth connection. No Chrome data or site authentication cookies are obtained by connecting an account here.</div>`;
+  return '<h1 class="settings-title">Google account</h1><div class="settings-lead">Sign in to Google in a Vinyl tab.</div><div class="settings-group"><div class="setting-row"><div class="setting-info"><div class="setting-title">Google</div><div class="setting-detail">Google websites share your saved browsing session in Vinyl.</div></div><button class="settings-action primary-button" data-action="google-website" data-site="google">Sign in to Google</button></div><div class="setting-row"><div class="setting-info"><div class="setting-title">Google websites</div></div><div class="settings-inline"><button class="settings-action" data-action="google-website" data-site="gmail">Gmail</button><button class="settings-action" data-action="google-website" data-site="youtube">YouTube</button></div></div></div><p class="settings-fineprint">Google may restrict sign-in in this browser. Chrome browser sign-in and Sync are unavailable in Vinyl.</p>';
 }
 function updateSettingsHTML() {
   const updates = ui.state?.updates || {state:'unconfigured',message:'Updates are not configured.',version:''};
@@ -417,28 +398,15 @@ function updateSettingsHTML() {
     <div class="settings-fineprint">Installed GitHub Releases builds check automatically at startup and every six hours. When an update is downloaded, select Restart to update. Your bookmarks and browser data stay in Vinyl's user profile, separate from application files.</div>`;
 }
 function hideToolbar() {
-  clearTimeout(toolbarTimer);
-  if ($('.toolbar').contains(document.activeElement)) document.activeElement.blur();
-  ui.dockHidden = true; ui.toolbarRevealed = false;
+  if ($('.toolbar').contains(document.activeElement)) $('#dock-handle').focus({preventScroll:true});
+  ui.dockHidden = true;
   applyAppearance(); requestAnimationFrame(updateLayout);
 }
 function revealToolbar() {
   ui.dockHidden = false;
-  clearTimeout(toolbarTimer);
-  ui.toolbarRevealed = true;
-  applyAppearance();
-  requestAnimationFrame(updateLayout);
+  applyAppearance(); requestAnimationFrame(updateLayout);
 }
-function scheduleToolbarRetract(delay = 650) {
-  clearTimeout(toolbarTimer);
-  if (settings().addressBarMode !== 'auto') return;
-  toolbarTimer = setTimeout(() => {
-    if ($('.toolbar').contains(document.activeElement)) return;
-    ui.toolbarRevealed = false;
-    applyAppearance();
-    requestAnimationFrame(updateLayout);
-  }, delay);
-}
+function toggleToolbar() { if (ui.dockHidden) revealToolbar(); else hideToolbar(); }
 function updateLayout() {
   if (!window.vinyl || !ui.state || shelfSurface) return;
   const bounds = $('#pageViewport').getBoundingClientRect();
@@ -549,14 +517,8 @@ async function executeAction(button, event) {
       case 'link-chrome': return run('chrome:link',{profileId:ui.selectedChromeProfile},'Chrome profile linked');
       case 'unlink-chrome': return run('chrome:unlink',null,'Chrome profile unlinked');
       case 'refresh-chrome': return run('chrome:refresh',null,'Chrome data refreshed');
-      case 'google-save-client': return run('google:setClientId',{clientId:$('#google-client-id')?.value},'Google client ID saved');
-      case 'google-profile': {
-        if (ui.state.google?.clientId && !ui.state.google?.connected) return run('google:signIn',null,'Google profile connected');
-        ui.settingsSection = 'account'; setShelf(ui.section,false); return run('browser:openSettings');
-      }
-      case 'google-signin': return run('google:signIn',null,'Google account connected');
+      case 'google-profile': return run('google:openWebsite',{site:'google'});
       case 'google-website': return run('google:openWebsite',{site:button.dataset.site});
-      case 'google-signout': return run('google:signOut',null,'Google account disconnected');
       case 'update-check': return run('updates:check');
       case 'update-install': return run('updates:install');
       case 'import-chrome': { const count=await run('bookmark:importChrome',{profileId:ui.selectedChromeProfile}); if (count) toast(`${count} bookmarks imported`); return; }
@@ -580,8 +542,6 @@ function bindEvents() {
   $('#close-shelf').innerHTML = icon('x',17);
   $('#shelf-open').innerHTML = icon('bookmark',18);
   $('#toggles-open').innerHTML = icon('sliders',18);
-  $('#dock-hide').innerHTML = icon('chevron',18);
-  $('#dock-hide').addEventListener('click',hideToolbar);
   $('#toggles-open').addEventListener('click',()=>setShelf('toggles',!ui.shelfOpen || ui.section !== 'toggles'));
   $('#more-menu').innerHTML = icon('settings',18);
   $('#window-min').innerHTML = icon('minimize',15);
@@ -595,16 +555,11 @@ function bindEvents() {
   $('#reload').addEventListener('click', () => run(active()?.loading ? 'browser:stop' : 'browser:reload').catch(() => {}));
   $('#bookmark-current').addEventListener('click', () => run('browser:bookmarkCurrent',null,'Bookmark added').catch(() => {}));
   $('#shelf-open').addEventListener('click', toggleShelf);
-  $('#toolbar-pin').addEventListener('click', () => { const next = settings().addressBarMode === 'auto' ? 'always' : 'auto'; if (next === 'auto') scheduleToolbarRetract(750); else revealToolbar(); run('settings:set',{key:'addressBarMode',value:next}).catch(()=>{}); });
   $('#close-shelf').addEventListener('click', () => setShelf(ui.section,false));
   $('#more-menu').addEventListener('click', () => { setShelf(ui.section,false); run('browser:openSettings').catch(() => {}); });
-  $('#dock-handle').addEventListener('mouseenter', revealToolbar);
-  $('#dock-handle').addEventListener('click', focusAddress);
-  $('#dock-handle').addEventListener('focus', revealToolbar);
-  $('.toolbar').addEventListener('mouseenter', revealToolbar);
-  $('.toolbar').addEventListener('mouseleave', () => scheduleToolbarRetract(700));
+  $('#dock-handle').innerHTML = '<span class="drawer-grip"></span>'+icon('chevron',13);
+  $('#dock-handle').addEventListener('click', toggleToolbar);
   $('#address').addEventListener('focus', revealToolbar);
-  $('#address').addEventListener('blur', () => scheduleToolbarRetract(900));
   $('#window-min').addEventListener('click', () => run('window:minimize').catch(() => {}));
   $('#window-max').addEventListener('click', () => run('window:maximize').catch(() => {}));
   $('#window-close').addEventListener('click', () => run('window:close').catch(() => {}));
@@ -703,7 +658,7 @@ function bindEvents() {
     }
   }, true);
   document.addEventListener('keydown', event => {
-    if (event.key === 'Escape') { closeMenu(); closeModal(); if (tabDrag) endTabDrag(event,true); else if ($('.toolbar').contains(document.activeElement)) hideToolbar(); }
+    if (event.key === 'Escape') { closeMenu(); closeModal(); if (tabDrag) endTabDrag(event,true);  }
     if (event.ctrlKey || event.metaKey) {
       if (event.key.toLowerCase() === 'h' && event.shiftKey) { event.preventDefault(); hideToolbar(); }
       else if (event.key.toLowerCase() === 'b' && event.shiftKey) { event.preventDefault(); setShelf('bookmarks',!ui.shelfOpen || ui.section !== 'bookmarks'); }
@@ -745,6 +700,7 @@ function bindEvents() {
     if (command.startsWith('settings:')) { ui.settingsSection = command.slice(9); renderSettings(); }
     if (command === 'hide-controls') hideToolbar();
     else if (command === 'focus-address') { focusAddress(); }
+    else if (command === 'focus-home') requestAnimationFrame(() => $('#home-address').focus({preventScroll:true}));
     else if (command === 'open-bookmarks') setShelf('bookmarks',true);
     else if (command === 'bookmark-current') run('browser:bookmarkCurrent',null,'Bookmark added').catch(() => {});
   });
@@ -755,7 +711,7 @@ async function init() {
     document.body.dataset.shelf = 'open';
     return;
   }
-  try { ui.state = await invoke('app:state'); render(); loadHomeFeed(); if(settings().addressBarMode === 'auto')scheduleToolbarRetract(2500); }
+  try { ui.state = await invoke('app:state'); render(); loadHomeFeed(); }
   catch (error) { toast(`Vinyl could not initialize: ${error.message}`); }
 }
 init();

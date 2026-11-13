@@ -320,9 +320,6 @@ body[data-shadows="false"] .window-control, body[data-shadows="false"] .app-tile
 body[data-toolbar-mode="compact"] { --toolbar-h:45px; }
 body[data-toolbar-mode="compact"] .address-field { height:32px; }
 body[data-toolbar-mode="compact"] .icon-button { width:30px; height:30px; }
-body[data-toolbar-mode="auto"][data-toolbar-visible="false"] #shell { grid-template-rows:var(--tabs-h) 0px minmax(0,1fr); }
-body[data-toolbar-mode="auto"][data-toolbar-visible="false"] .toolbar { opacity:0; transform:translateY(-12px); pointer-events:none; visibility:hidden; }
-body[data-toolbar-mode="auto"] .tabstrip { cursor:default; }
 body[data-motion="reduce"] #shell { transition:none; }
 
 /* Clear, thick-edged corner controls mimic a softly molded desktop material. */
@@ -339,8 +336,6 @@ body[data-motion="reduce"] #shell { transition:none; }
 /* The shelf handle stays next to the browser identity, including when the address row is hidden. */
 .tabstrip .tab-shelf-toggle { align-self:center;flex:0 0 33px;width:33px;height:32px;margin-left:-5px;margin-right:6px;border-color:transparent;background:transparent; }
 .tabstrip .tab-shelf-toggle:hover,body[data-shelf="open"] .tab-shelf-toggle {background:var(--surface);border-color:var(--stroke);}
-.toolbar-pin { align-self:center;flex:none;width:33px;height:32px;opacity:.76; }
-.toolbar-pin:hover {opacity:1;}
 .toolbar .toolbar-right { display:none; }
 .shelf-head { border-bottom:1px solid var(--stroke); padding-bottom:19px; }
 

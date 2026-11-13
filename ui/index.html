@@ -43,15 +43,16 @@
   <div id="shell">
     <header class="tabstrip">
       <div class="tablist" id="tabs" role="tablist"></div>
-      <button class="icon-button newtab-button" id="newtab" title="New tab (Ctrl+T)" aria-label="New tab"></button>
+      <button class="icon-button newtab-button" id="newtab" title="Open Home (Ctrl+T)" aria-label="Open Home"></button>
       <div class="title-drag-region"></div>
+      <button id="more-menu" class="icon-button settings-top" title="Settings" aria-label="Settings"></button>
       <div class="window-controls" aria-label="Window controls">
         <button id="window-min" class="window-control" title="Minimize" aria-label="Minimize"></button>
         <button id="window-max" class="window-control" title="Maximize or restore" aria-label="Maximize or restore"></button>
         <button id="window-close" class="window-control close-control" title="Close Vinyl" aria-label="Close"></button>
       </div>
     </header>
-    <div class="toolbar" aria-label="Browser controls">
+    <div class="toolbar" id="browser-controls" aria-label="Browser controls">
       <div class="navigation">
         <button class="icon-button" id="back" title="Back (Alt+Left)" aria-label="Back"></button>
         <button class="icon-button" id="forward" title="Forward (Alt+Right)" aria-label="Forward"></button>
@@ -62,14 +63,13 @@
         <input id="address" autocomplete="off" spellcheck="false" placeholder="Search or enter a website address" aria-label="Address or search"/>
         <button id="bookmark-current" class="icon-button small-icon" title="Bookmark this page (Ctrl+D)" aria-label="Bookmark this page"></button>
       </div>
-      <div class="dock-actions">      <button class="shelf-toggle tab-shelf-toggle" id="shelf-open" title="Bookmarks (Ctrl+Shift+B)" aria-label="Open bookmarks" aria-expanded="false"></button>
-      <button class="icon-button" id="toggles-open" title="Toggles" aria-label="Open Toggles" aria-expanded="false"></button>
-      <button class="icon-button" id="dock-hide" title="Hide all controls (Ctrl+Shift+H)" aria-label="Hide all controls"></button>
-      <button class="icon-button toolbar-pin" id="toolbar-pin" title="Pin or retract address bar" aria-label="Pin or retract address bar"></button>
-      <button id="more-menu" class="icon-button settings-top" title="Settings" aria-label="Settings"></button>
-<button class="icon-button google-profile" id="google-profile" data-action="google-profile" title="Sign in to your Google profile" aria-label="Sign in to your Google profile"></button></div>
+      <div class="dock-actions">
+        <button class="shelf-toggle tab-shelf-toggle" id="shelf-open" title="Bookmarks (Ctrl+Shift+B)" aria-label="Open bookmarks" aria-expanded="false"></button>
+        <button class="icon-button" id="toggles-open" title="Toggles" aria-label="Open Toggles" aria-expanded="false"></button>
+        <button class="icon-button google-profile" id="google-profile" data-action="google-profile" title="Sign in to Google" aria-label="Sign in to Google"></button>
+      </div>
     </div>
-    <button id="dock-handle" class="dock-handle" title="Show address bar (Ctrl+L)" aria-label="Show browser controls"></button>
+    <button id="dock-handle" class="dock-handle" title="Hide browser controls" aria-label="Hide browser controls" aria-controls="browser-controls" aria-expanded="true"></button>
     <div class="workspace" id="workspace">
       <aside class="shelf" id="shelf" aria-label="Vinyl shelf" inert>
         <div class="shelf-head">

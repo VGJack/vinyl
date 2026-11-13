@@ -1,22 +1,22 @@
-# Vinyl 0.7.1
+# Vinyl 0.7.2
 
 Vinyl is an Electron browser with a sculpted glass home page, detachable tabs, a bottom navigation dock, and an attached bookmark drawer.
 
 ## Install this version
 
-Run `dist/Vinyl-Setup-0.7.1.exe` using the same Windows account as your existing copy. A stale per-user registration whose folder is missing is recovered to `%LOCALAPPDATA%\Programs\Vinyl`. Existing live installation locations are preserved. The application ID remains `app.vinyl.browser`; bookmarks, preferences, and site data stay in the existing user profile.
+Run `dist/Vinyl-Setup-0.7.2.exe` using the same Windows account as your existing copy. A stale per-user registration whose folder is missing is recovered to `%LOCALAPPDATA%\Programs\Vinyl`. Existing live installation locations are preserved. The application ID remains `app.vinyl.browser`; bookmarks, preferences, and site data stay in the existing user profile.
 
 A local 0.6 build with an empty update configuration needs this manual upgrade once. The 0.7 installer embeds the `VGJack/vinyl` GitHub update feed. The published `v0.6` release had no installer or `latest.yml` assets when checked, so there was nothing for an updater to download.
 
 ## Browser controls
 
-- Only tabs and native window controls occupy the top edge. Drag tabs horizontally to reorder; drag away from the strip and release to create a separate window. The live page, form contents, history, and session move with the tab. Escape cancels a drag. Ctrl+Shift+Left/Right reorders a focused tab with the keyboard.
-- Bottom controls are separate floating buttons plus a compact address input. Hide all controls with the down-arrow button or Ctrl+Shift+H. Hover the invisible bottom edge or press Ctrl+L to reveal them. Choose Auto-retract, Always visible, or Compact in Settings.
+- Tabs, Settings, and native window controls occupy the top edge. Drag tabs horizontally to reorder; drag away from the strip and release to create a separate window. The live page, form contents, history, and session move with the tab. Escape cancels a drag. Ctrl+Shift+Left/Right reorders a focused tab with the keyboard.
+- Bottom controls are separate floating buttons plus a compact address input. Controls stay visible until hidden with the clickable bottom drawer holder or Ctrl+Shift+H. Click the holder again or press Ctrl+L to reveal them. Opening Home and switching tabs preserve the drawer state. Choose Standard or Compact size in Settings.
 - The bookmark-shaped button extends a rounded drawer outside the left edge of a normal window. The drawer follows window movement and hides when minimized. Vinyl moves the window inward when it needs space beside the display edge. Maximized and fullscreen windows use an internal drawer. F11 toggles fullscreen.
 - The home page uses four compact quadrants: search/shortcuts, visual weather, four image news panels, and recent tabs. News comes from BBC RSS with the publisher-provided story images; weather comes from Open-Meteo and offers Hourly and 7 days views with condition symbols. Missing images or offline data are labeled rather than replaced with unrelated photos.
 - The Toggles shelf is empty, ready for future site-specific tools. Home tabs use the outlined Vinyl logo.
 - The home page uses raised glass edges, recessed previews, and soft cast shadows. Widgets pop into place. The startup V is concealed behind animated masks and unwinds behind moving curled edges. Reduced Motion disables these effects.
-- Google profile is accessible from the G button. The existing desktop OAuth flow requires a Google Cloud Desktop client ID in Accounts; it requests basic identity, not Chrome Sync or website cookies. You can also open Google, Gmail, or YouTube sign-in in Vinyl tabs. Google may reject embedded-browser website sign-in.
+- The G button opens Google account sign-in directly in a Vinyl tab using the persistent browser session shared with Gmail and YouTube. No OAuth client ID is required. Google may reject embedded-browser sign-in; Chrome browser account sign-in and Sync are unavailable in Vinyl.
 
 ## Automatic updates
 
@@ -35,7 +35,7 @@ The repository root is this `vinyl` folder (the folder containing `package.json`
 - `npm run check` — syntax and unit checks, including updater lifecycle and release configuration.
 - `npm run test:installer` — Windows regression test using harmless local fixture processes; verifies that only the target installation is stopped.
 - `npm run test:installer-location` — compiles an isolated NSIS test to verify missing-folder recovery, preserving an existing installation path, and rejecting a locked uninstaller before replacement.
-- `npm run test:runtime` — Electron integration checks; requires Playwright available as `playwright` or via `VINYL_PLAYWRIGHT`. Uses a fresh isolated profile under `tmp`, not your installed browser data. Exercises dock retraction/Ctrl+L, pointer reordering, external/internal shelf placement, live tab transfer/history/form data, closing the source window, independent windows, Google profile entry, and renderer errors.
+- `npm run test:runtime` — Electron integration checks; requires Playwright available as `playwright` or via `VINYL_PLAYWRIGHT`. Uses a fresh isolated profile under `tmp`, not your installed browser data. Exercises manual drawer visibility/Ctrl+L, pointer reordering, stable section switching and external/internal shelf placement, live tab transfer/history/form data, closing the source window, independent windows, Google website sign-in entry, and renderer errors.
 - `npm run build:win` — build a local NSIS installer with the update feed, without publishing.
 - `npm run publish:win` — build assets for a draft GitHub Release, with a release token.
 

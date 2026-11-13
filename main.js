@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, WebContentsView, ipcMain, dialog, session, Menu, nativeTheme, shell, safeStorage, screen } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, dialog, session, Menu, nativeTheme, screen } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
@@ -7,7 +7,6 @@ const { randomUUID } = require('node:crypto');
 const { Store } = require('./store');
 const chromeBridge = require('./chrome-bridge');
 const { parseNetscapeBookmarks } = require('./import-bookmarks');
-const { GoogleAccount, isDesktopClientId } = require('./google-account');
 const { setupUpdater } = require('./updates');
 const {fetchNews,fetchWeather,resolveCity} = require('./home-data');
 
@@ -17,7 +16,6 @@ const primaryInstance = app.requestSingleInstanceLock();
 if (!primaryInstance) app.quit();
 
 let store;
-let googleAccount;
 let updater;
 const contexts = new Set();
 const ipcOwners = new Map();
@@ -117,7 +115,6 @@ function state() {
     tabs: tabs.map(({id, title, url, favicon, loading, canGoBack, canGoForward}) => ({id, title, url, favicon, loading, canGoBack, canGoForward})),
     recentTabs: store.data.recentTabs.slice(0,4).map(item=>({...item,preview:previews.get(item.url)||''})),
     activeId, bookmarks: [...store.data.bookmarks, ...chromeBookmarks], settings: store.data.settings,
-    google: { ...(googleAccount?.status() || {connected:false,profile:null,busy:false,persistent:false}), clientId:store.data.googleClientId },
     updates: updater?.status || {state:'unconfigured',message:'Update feed not configured.'},
     chrome: { profiles: chromeBridge.chromeProfiles(), linkedProfile: store.data.chromeProfileId,
       bookmarkCount: chromeBookmarks.length, lastUpdated: chromeUpdated, error: chromeError },
@@ -154,12 +151,17 @@ function syncShelf() {
   else if (shelfWindow && !shelfWindow.isDestroyed()) {
     clearInterval(shelfAnimation);
     shelfWindow.setBounds(shelfBounds()); shelfWindow.showInactive();
+  } else if (shelfOpen && externalShelf() && !window.isMinimized()) {
+    setShelf(true,shelfSection).catch(error=>console.warn('Shelf:',error.message));
   }
   broadcast();
 }
 async function setShelf(open, section = shelfSection) {
+  const wasOpen = shelfOpen;
   if (['bookmarks','toggles'].includes(section)) shelfSection = section;
   shelfOpen = Boolean(open) && store.data.settings.shelfEnabled !== false;
+  // Changing sections is a content update, not another drawer-opening animation.
+  if (wasOpen && shelfOpen && (!externalShelf() || (shelfWindow && !shelfWindow.isDestroyed()))) { broadcast(); return; }
   clearInterval(shelfAnimation);
   if (!shelfOpen || !externalShelf()) { syncShelf(); return; }
   // Make room on the current display before extending the attached drawer.
@@ -252,7 +254,7 @@ function activateTab(id) {
   broadcast();
 }
 function createTab(url = '', activate = true) {
-  const tab = { id: randomUUID(), title: 'New tab', url: '', favicon: '', loading: false,
+  const tab = { id: randomUUID(), title: 'Home', url: '', favicon: '', loading: false,
     canGoBack: false, canGoForward: false, view: null, owner: context };
   tabs.push(tab);
   if (activate || !activeId) activateTab(tab.id);
@@ -314,7 +316,7 @@ function browserShortcuts(event, input) {
   if (key === 'f11') { event.preventDefault(); window.setFullScreen(!window.isFullScreen()); }
   else if (modifier && input.shift && key === 'h') { event.preventDefault(); command('hide-controls'); }
   else if (modifier && key === 'l') { event.preventDefault(); command('focus-address'); }
-  else if (modifier && key === 't') { event.preventDefault(); createTab(); command('focus-address'); }
+  else if (modifier && key === 't') { event.preventDefault(); createTab(); command('focus-home'); }
   else if (modifier && key === 'w') { event.preventDefault(); closeTab(activeId); }
   else if (modifier && key === 'r') { event.preventDefault(); activeTab()?.view?.webContents.reload(); }
   else if (modifier && key === 'd') { event.preventDefault(); command('bookmark-current'); }
@@ -543,22 +545,15 @@ function registerIpc() {
   });
   receive('chrome:unlink', () => { store.setChromeProfile(null); for (const owner of contexts) owner.watchLinkedChrome(); });
   receive('chrome:refresh', () => refreshLinkedChrome());
-  receive('google:setClientId', ({clientId}) => {
-    const next = String(clientId || '').trim();
-    if (next && !isDesktopClientId(next)) throw new Error('This is not a valid Google OAuth desktop client ID.');
-    store.setGoogleClientId(next);
-  });
   receive('google:openWebsite', ({site}) => {
-    const urls = {youtube:'https://www.youtube.com/', gmail:'https://mail.google.com/', google:'https://accounts.google.com/'};
+    const urls = {youtube:'https://www.youtube.com/', gmail:'https://mail.google.com/', google:'https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fmyaccount.google.com%2F'};
     if (!Object.hasOwn(urls, site)) throw new Error('Unknown Google site');
+    if (site === 'google') {
+      const existing = tabs.find(tab => {try {return ['accounts.google.com','myaccount.google.com'].includes(new URL(tab.url).hostname);}catch{return false;}});
+      if (existing) {activateTab(existing.id);return;}
+    }
     createTab(urls[site], true);
   });
-  receive('google:signIn', async () => {
-    const result = await googleAccount.signIn(store.data.googleClientId, url => shell.openExternal(url));
-    if (window && !window.isDestroyed()) window.focus();
-    return result;
-  });
-  receive('google:signOut', () => googleAccount.signOut());
   receive('updates:check', () => updater.check());
   receive('updates:install', () => updater.install());
   receive('app:about', () => ({ electron: process.versions.electron, chrome: process.versions.chrome, node: process.versions.node, version: app.getVersion() }));
@@ -567,7 +562,6 @@ return context;
 }
 if (primaryInstance) app.whenReady().then(async () => {
   store = new Store(app.getPath('userData'));
-  googleAccount = new GoogleAccount(app.getPath('userData'), safeStorage);
   updater = setupUpdater(app, broadcastAll, {beforeInstall:() => store.save()});
   nativeTheme.themeSource = store.data.settings.theme || 'system';
   session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
@@ -586,7 +580,6 @@ if (primaryInstance) app.whenReady().then(async () => {
     } catch { callback(false); }
   });
   await openBrowser();
-  googleAccount.restore().then(broadcastAll).catch(error => console.warn('Google account restoration:', error.message));
   app.on('activate', () => { if (!quitting && contexts.size === 0) openBrowser(); });
 }).catch(error => dialog.showErrorBox('Vinyl failed to launch', error.stack || String(error)));
 
