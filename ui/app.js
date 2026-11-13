@@ -30,7 +30,7 @@ const PATHS = {
   command: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M7 10h10M7 14h7"/>',
   minimize: '<path d="M5 12h14"/>',
   maximize: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
-  settings: '<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2"/><circle cx="16" cy="17" r="2"/>',
+  settings: '<path d="m9.5 3-.6 2.4-1.7 1-2.4-.7-2.5 4.3 1.8 1.7v2l-1.8 1.7 2.5 4.3 2.4-.7 1.7 1 .6 2.4h5l.6-2.4 1.7-1 2.4.7 2.5-4.3-1.8-1.7v-2l1.8-1.7-2.5-4.3-2.4.7-1.7-1-.6-2.4z" transform="translate(0 -1)"/><circle cx="12" cy="12" r="3"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M5 21a7 7 0 0 1 14 0"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.4 1.4m11.34 11.34 1.4 1.4M2 12h2m16 0h2M4.93 19.07l1.4-1.4m11.34-11.34 1.4-1.4"/>',
   cloud: '<path d="M20 17a4 4 0 0 0-3-7.5 6 6 0 0 0-11 2.5A3.5 3.5 0 0 0 7 19h12"/>',
@@ -114,9 +114,8 @@ function applyAppearance() {
   const dockVisible = !ui.dockHidden;
   document.body.dataset.toolbarVisible = String(dockVisible);
   $('.toolbar').inert = !dockVisible;
-  $('#dock-handle').setAttribute('aria-expanded',String(dockVisible));
-  $('#dock-handle').title = dockVisible ? 'Hide browser controls' : 'Show browser controls';
-  $('#dock-handle').setAttribute('aria-label',$('#dock-handle').title);
+  $('#dock-close').inert = !dockVisible;
+  $('#dock-reveal').inert = dockVisible;
   document.body.dataset.rounded = String(s.roundedPanels !== false);
   document.body.dataset.shadows = String(s.softShadows !== false);
   document.body.dataset.labels = String(s.showLabels !== false);
@@ -336,7 +335,7 @@ const settingRows = [
     { key:'shelfEnabled', title:'Bookmark shelf', detail:'Show the integrated bookmarks drawer' },
     { key:'autoCloseShelf', title:'Close after opening', detail:'Collapse the shelf after you open a bookmark' },
     { key:'compactTabs', title:'Compact tabs', detail:'Slightly smaller tabs' },
-    { key:'addressBarMode', title:'Controls size', detail:'Use the bottom drawer handle to show or hide controls', options:[['always','Standard'],['compact','Compact']] },
+    { key:'addressBarMode', title:'Controls size', detail:'Close with the X; hover at the bottom edge to show controls', options:[['always','Standard'],['compact','Compact']] },
     { key:'showLabels', title:'App labels', detail:'Display titles below shelf icons' },
     { key:'showHomeShortcuts', title:'Home shortcuts', detail:'Show your favorite websites on Home' },
     { key:'showRecentTabs', title:'Recent tabs', detail:'Show four recently visited pages on Home' },
@@ -398,7 +397,7 @@ function updateSettingsHTML() {
     <div class="settings-fineprint">Vinyl checks for new builds at startup and every five minutes, then downloads them automatically. When a download finishes, select Restart to update. Your bookmarks and browser data are preserved.</div>`;
 }
 function hideToolbar() {
-  if ($('.toolbar').contains(document.activeElement)) $('#dock-handle').focus({preventScroll:true});
+  if ($('.toolbar').contains(document.activeElement) || document.activeElement === $('#dock-close')) document.activeElement.blur();
   ui.dockHidden = true;
   applyAppearance(); requestAnimationFrame(updateLayout);
 }
@@ -406,7 +405,6 @@ function revealToolbar() {
   ui.dockHidden = false;
   applyAppearance(); requestAnimationFrame(updateLayout);
 }
-function toggleToolbar() { if (ui.dockHidden) revealToolbar(); else hideToolbar(); }
 function updateLayout() {
   if (!window.vinyl || !ui.state || shelfSurface) return;
   const bounds = $('#pageViewport').getBoundingClientRect();
@@ -557,8 +555,11 @@ function bindEvents() {
   $('#shelf-open').addEventListener('click', toggleShelf);
   $('#close-shelf').addEventListener('click', () => setShelf(ui.section,false));
   $('#more-menu').addEventListener('click', () => { setShelf(ui.section,false); run('browser:openSettings').catch(() => {}); });
-  $('#dock-handle').innerHTML = '<span class="drawer-grip"></span>'+icon('chevron',13);
-  $('#dock-handle').addEventListener('click', toggleToolbar);
+  $('#dock-close').innerHTML = icon('x',13);
+  $('#dock-close').addEventListener('click', hideToolbar);
+  $('#dock-reveal').addEventListener('pointerenter', revealToolbar);
+  $('#dock-reveal').addEventListener('click', revealToolbar);
+  $('#dock-reveal').addEventListener('focus', focusAddress);
   $('#address').addEventListener('focus', revealToolbar);
   $('#window-min').addEventListener('click', () => run('window:minimize').catch(() => {}));
   $('#window-max').addEventListener('click', () => run('window:maximize').catch(() => {}));

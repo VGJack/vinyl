@@ -224,7 +224,7 @@ body[data-motion="reduce"] *, body[data-motion="reduce"] *::before, body[data-mo
 .window-control:active { transform:scale(.91); box-shadow:none; }
 .window-control.close-control:hover { color:#b2444c; background:#fdf1f2; border-color:#f0d7da; }
 body[data-theme="dark"] .window-control.close-control:hover { color:#ffacb3; background:#552c35; border-color:#79505b; }
-body[data-platform="darwin"] .window-controls { display:none; }
+body[data-platform="darwin"] .window-controls .window-control:not(#more-menu) { display:none; }
 body[data-platform="darwin"] .brand { padding-left:74px; width:126px; }
 
 /* Native-feeling shelves: a quiet app launcher, not a dashboard. */
@@ -409,7 +409,6 @@ body[data-motion="reduce"] #shell { transition:none; }
 body[data-motion="reduce"] .home-reveal,body[data-motion="reduce"] .home-material-roll,body[data-motion="reduce"] .roll-tube,body[data-motion="reduce"] .roll-sheet {animation:none !important;}
 body[data-motion="reduce"] .home-material-roll {display:none;}
 
-.settings-top {align-self:center;flex:none;width:32px;height:32px;margin-right:7px;}
 
 .home-lower:has(#news-block[hidden]) {grid-template-columns:minmax(220px,340px);}
 .home-lower:has(#weather-block[hidden]) {grid-template-columns:1fr;}

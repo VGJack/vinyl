@@ -204,12 +204,11 @@ body[data-page="home"] .home,body[data-page="home"] .workspace,body[data-page="h
 body { --toolbar-h:80px; }
 body[data-toolbar-mode="compact"] { --toolbar-h:72px; }
 body[data-toolbar-mode="compact"] .toolbar { padding-bottom:26px; }
-.tabstrip .settings-top { align-self:center;flex:none;width:32px;height:32px;margin:0 3px 0 0;border:1px solid var(--stroke);border-radius:12px;background:var(--glass);box-shadow:var(--lip),0 2px 5px #38566a12; }
-.dock-handle { position:fixed;z-index:20;bottom:0;left:calc(50% - 39px);width:78px;height:23px;display:flex;align-items:center;justify-content:center;gap:9px;padding:0;border:1px solid var(--stroke-strong);border-bottom:0;border-radius:12px 12px 0 0;background:var(--glass);color:var(--text-secondary);box-shadow:var(--lip),0 -2px 8px #38566a10;cursor:pointer; }
-.dock-handle:hover { color:var(--text);background:var(--surface); }
-.drawer-grip { width:21px;height:5px;border-top:1px solid var(--text-tertiary);border-bottom:1px solid var(--text-tertiary);opacity:.65; }
-.dock-handle svg { transform:rotate(90deg);transition:transform .2s; }
-body[data-toolbar-visible="false"] .dock-handle svg { transform:rotate(-90deg); }
-body[data-toolbar-visible="false"] #shell { grid-template-rows:var(--tabs-h) minmax(0,1fr) 23px; }
+.dock-close { position:fixed;z-index:20;bottom:10px;left:calc(50% - 11px);width:22px;height:20px;display:grid;place-items:center;padding:0;border:0;border-radius:6px;background:transparent;color:var(--text-secondary);cursor:pointer; }
+.dock-close:hover { color:var(--text);background:var(--surface-hover); }
+.dock-reveal { display:none;position:fixed;z-index:20;bottom:0;left:0;width:100%;height:8px;padding:0;border:0;background:transparent; }
+body[data-toolbar-visible="false"] .dock-close { display:none; }
+body[data-toolbar-visible="false"] .dock-reveal { display:block; }
+body[data-toolbar-visible="false"] #shell { grid-template-rows:var(--tabs-h) minmax(0,1fr) 8px; }
 body[data-toolbar-visible="false"] .toolbar { transform:translateY(65px);opacity:0;visibility:hidden;pointer-events:none; }
-body[data-surface="shelf"] .tabstrip,body[data-surface="shelf"] .toolbar,body[data-surface="shelf"] .dock-handle,body[data-surface="shelf"] .page-viewport { display:none; }
+body[data-surface="shelf"] .tabstrip,body[data-surface="shelf"] .toolbar,body[data-surface="shelf"] .dock-close,body[data-surface="shelf"] .dock-reveal,body[data-surface="shelf"] .page-viewport { display:none; }

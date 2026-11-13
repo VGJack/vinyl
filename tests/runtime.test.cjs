@@ -46,7 +46,14 @@ const server = http.createServer((req,res) => {
     assert.equal(await page.locator('#toolbar-pin').count(),0);
     assert.equal(await page.locator('.toolbar #more-menu').count(),0);
     const settingsBounds=await page.locator('#more-menu').boundingBox(), minimizeBounds=await page.locator('#window-min').boundingBox();
-    assert.ok(settingsBounds.x < minimizeBounds.x && Math.abs(settingsBounds.y-minimizeBounds.y)<8);
+    assert.ok(settingsBounds.x < minimizeBounds.x);
+    assert.equal(settingsBounds.y,minimizeBounds.y,'Settings aligns with the window controls');
+    assert.equal(settingsBounds.height,minimizeBounds.height);
+    const controlStyles = await page.evaluate(()=>['#more-menu','#window-min'].map(selector=>{
+      const s=getComputedStyle(document.querySelector(selector));
+      return [s.background,s.border,s.borderRadius,s.boxShadow];
+    }));
+    assert.deepEqual(controlStyles[0],controlStyles[1]);
 
     assert.equal(await page.locator('.home-grid > section').count(),4);
     assert.equal(await page.locator('.home-eyebrow').count(),0);
@@ -64,19 +71,21 @@ const server = http.createServer((req,res) => {
     const viewport = await page.locator('#pageViewport').boundingBox();
     assert.ok(toolbar.y > viewport.y+viewport.height-2,'navigation is below content');
     await page.screenshot({path:path.join(root,'preview-home-v072.png')});
-    await page.click('#dock-handle');
+    await page.click('#dock-close');
     await page.waitForTimeout(300);
     assert.equal(await page.locator('.toolbar').isVisible(),false);
-    assert.equal(await page.locator('#dock-handle').isVisible(),true);
-    assert.equal(await page.locator('#dock-handle').getAttribute('aria-expanded'),'false');
-    await page.locator('#dock-handle').hover();
-    await page.waitForTimeout(400);
-    assert.equal(await page.locator('.toolbar').isVisible(),false,'hover does not reopen collapsed controls');
+    assert.equal(await page.locator('#dock-close').isVisible(),false);
+    assert.equal(await page.locator('#dock-reveal').isVisible(),true);
     await page.screenshot({path:path.join(root,'preview-hidden-v072.png')});
-    await page.click('#dock-handle');
+    const homeEdge=await page.locator('#dock-reveal').boundingBox();
+    // The target disappears as soon as pointerenter opens the drawer.
+    await page.mouse.move(homeEdge.x+homeEdge.width/2,homeEdge.y+homeEdge.height/2);
     await page.waitForTimeout(300);
     assert.equal(await page.locator('.toolbar').isVisible(),true);
-    assert.equal(await page.locator('#dock-handle').getAttribute('aria-expanded'),'true');
+    assert.equal(await page.locator('#dock-close').isVisible(),true);
+    await page.mouse.move(700,400);
+    await page.waitForTimeout(1000);
+    assert.equal(await page.locator('.toolbar').isVisible(),true,'revealed controls stay open until closed');
     await page.keyboard.press('Control+l');
     await page.waitForFunction(()=>document.activeElement.id==='address');
     const initial=(await invoke('app:state')).activeId;
@@ -117,7 +126,7 @@ const server = http.createServer((req,res) => {
     assert.equal((await invoke('app:state')).shelfExternal,false);
     assert.ok((await page.locator('#shelf').boundingBox()).width > 250);
     await invoke('window:maximize');await invoke('window:shelf',{open:false});
-    await page.click('#dock-handle');
+    await page.click('#dock-close');
     await page.waitForTimeout(300);
     assert.equal(await page.locator('.toolbar').isVisible(),false);
     await page.click('#more-menu');
@@ -140,6 +149,14 @@ const server = http.createServer((req,res) => {
     await invoke('browser:navigate',{address:url});
     await page.waitForTimeout(600);
     const wcId=await app.evaluate(({webContents})=>webContents.getAllWebContents().find(w=>w.getURL().startsWith('http://127.0.0.1:')).id);
+    await page.click('#dock-close');
+    await page.waitForTimeout(300);
+    const edge=await page.locator('#dock-reveal').boundingBox();
+    const webBounds=await page.locator('#pageViewport').boundingBox();
+    assert.ok(webBounds.y+webBounds.height<=edge.y+1,'live webpage leaves the bottom hover target accessible');
+    await page.mouse.move(edge.x+edge.width/2,edge.y+edge.height/2);
+    await page.waitForTimeout(300);
+    assert.equal(await page.locator('.toolbar').isVisible(),true);
     // Use a real navigation: Chromium may skip synthetic pushState entries without user gestures.
     await app.evaluate(({webContents},{id,url})=>webContents.fromId(id).loadURL(url),{id:wcId,url:url+'next'});
     await app.evaluate(({webContents},id)=>webContents.fromId(id).executeJavaScript('document.querySelector("#draft").value="keep this draft";window.onbeforeunload=()=>"unsaved";true'),wcId);
@@ -179,7 +196,7 @@ const server = http.createServer((req,res) => {
     await app.evaluate(({webContents},id)=>webContents.fromId(id).executeJavaScript('document.title="Transferred and still live"'),wcId);
     await other.waitForFunction(()=>document.title.includes('Transferred and still live'));
     assert.deepEqual(errors,[]);
-    console.log('Runtime checks passed: manual dock holder/no auto-hide/Ctrl+L, pointer reorder, stable shelf section switching/external/internal shelf, live tab transfer/history, source close, independent windows, Google profile entry, clean renderer.');
+    console.log('Runtime checks passed: aligned Settings, X-close/bottom-hover/Ctrl+L on Home and live pages, pointer reorder, stable shelf switching, live tab transfer/history, independent windows, Google entry, clean renderer.');
   } finally {
     await app.close(); server.close();
   }

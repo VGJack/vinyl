@@ -45,8 +45,8 @@
       <div class="tablist" id="tabs" role="tablist"></div>
       <button class="icon-button newtab-button" id="newtab" title="Open Home (Ctrl+T)" aria-label="Open Home"></button>
       <div class="title-drag-region"></div>
-      <button id="more-menu" class="icon-button settings-top" title="Settings" aria-label="Settings"></button>
       <div class="window-controls" aria-label="Window controls">
+        <button id="more-menu" class="window-control" title="Settings" aria-label="Settings"></button>
         <button id="window-min" class="window-control" title="Minimize" aria-label="Minimize"></button>
         <button id="window-max" class="window-control" title="Maximize or restore" aria-label="Maximize or restore"></button>
         <button id="window-close" class="window-control close-control" title="Close Vinyl" aria-label="Close"></button>
@@ -69,7 +69,8 @@
         <button class="icon-button google-profile" id="google-profile" data-action="google-profile" title="Sign in to Google" aria-label="Sign in to Google"></button>
       </div>
     </div>
-    <button id="dock-handle" class="dock-handle" title="Hide browser controls" aria-label="Hide browser controls" aria-controls="browser-controls" aria-expanded="true"></button>
+    <button id="dock-close" class="dock-close" title="Hide browser controls" aria-label="Hide browser controls" aria-controls="browser-controls"></button>
+    <button id="dock-reveal" class="dock-reveal" title="Show browser controls" aria-label="Show browser controls" aria-controls="browser-controls"></button>
     <div class="workspace" id="workspace">
       <aside class="shelf" id="shelf" aria-label="Vinyl shelf" inert>
         <div class="shelf-head">
