@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' https: data:; connect-src 'none'; object-src 'none'; base-uri 'none'"/>
   <title>Vinyl</title>
-  <link rel="icon" href="../assets/logo.svg" type="image/svg+xml"/>
+  <link rel="icon" href="../assets/logo-outline.svg" type="image/svg+xml"/>
   <link rel="stylesheet" href="./styles.css"/>
+  <link rel="stylesheet" href="./material.css"/>
 </head>
 <body data-theme="light" data-accent="blue" data-shelf="closed">
   <div id="launch-splash" class="launch-splash" aria-label="Launching Vinyl">
@@ -17,18 +18,23 @@
           <linearGradient id="splash-left" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff" stop-opacity=".96"/><stop offset=".27" stop-color="#c5eaff" stop-opacity=".88"/><stop offset="1" stop-color="#73b9e9" stop-opacity=".84"/></linearGradient>
           <linearGradient id="splash-right" x1="1" y1="0" x2="0" y2="1"><stop stop-color="#fff" stop-opacity=".96"/><stop offset=".27" stop-color="#c1f0e7" stop-opacity=".85"/><stop offset="1" stop-color="#6bbcc1" stop-opacity=".8"/></linearGradient>
           <linearGradient id="splash-fold" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff" stop-opacity=".92"/><stop offset="1" stop-color="#a4d3e9" stop-opacity=".56"/></linearGradient>
+          <clipPath id="left-unroll"><rect class="unroll-mask mask-left" x="25" y="34" width="140" height="190"/></clipPath>
+          <clipPath id="right-unroll"><rect class="unroll-mask mask-right" x="95" y="34" width="140" height="190"/></clipPath>
+          <linearGradient id="roll-cylinder" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#77aac6"/><stop offset=".35" stop-color="#faffff"/><stop offset=".6" stop-color="#d4edf5"/><stop offset="1" stop-color="#729eb4"/></linearGradient>
           <filter id="splash-shadow" x="-40%" y="-40%" width="180%" height="180%"><feDropShadow dx="0" dy="9" stdDeviation="9" flood-color="#295574" flood-opacity=".12"/></filter>
         </defs>
         <g filter="url(#splash-shadow)">
           <rect class="splash-plate" x="12" y="12" width="232" height="232" rx="62" fill="url(#splash-glass)" stroke="#fff" stroke-width="7"/>
-          <g class="splash-arm splash-arm-left">
+          <g class="splash-arm splash-arm-left" clip-path="url(#left-unroll)">
             <path d="M42 58c-3-7 3-14 11-14h38c6 0 10 4 12 9l43 106-18 48c-2 5-7 9-13 9h-9c-6 0-10-4-13-10Z" fill="url(#splash-left)" stroke="#fff" stroke-opacity=".95" stroke-width="6" stroke-linejoin="round"/>
             <path d="M42 58c-3-7 3-14 11-14h38c6 0 10 4 12 9l5 14H57c-7 0-11-2-15-9" fill="url(#splash-fold)" stroke="#fff" stroke-width="2" stroke-opacity=".7"/>
           </g>
-          <g class="splash-arm splash-arm-right">
+          <g class="splash-arm splash-arm-right" clip-path="url(#right-unroll)">
             <path d="M211 58c3-7-3-14-11-14h-38c-6 0-10 4-12 9l-43 106 18 48c2 5 7 9 13 9h9c6 0 10-4 13-10Z" fill="url(#splash-right)" stroke="#fff" stroke-opacity=".95" stroke-width="6" stroke-linejoin="round"/>
             <path d="M211 58c3-7-3-14-11-14h-38c-6 0-10 4-12 9l-5 14h51c7 0 11-2 15-9" fill="url(#splash-fold)" stroke="#fff" stroke-width="2" stroke-opacity=".7"/>
           </g>
+          <g class="splash-curl curl-left"><ellipse cx="76" cy="49" rx="28" ry="10" fill="url(#roll-cylinder)" stroke="#fff" stroke-width="2"/><ellipse cx="97" cy="49" rx="6" ry="8" fill="#81afc4" stroke="#e9fbff" stroke-width="2"/></g>
+          <g class="splash-curl curl-right"><ellipse cx="178" cy="49" rx="28" ry="10" fill="url(#roll-cylinder)" stroke="#fff" stroke-width="2"/><ellipse cx="157" cy="49" rx="6" ry="8" fill="#81afc4" stroke="#e9fbff" stroke-width="2"/></g>
           <path class="splash-overlap" d="M125 195l-5 12c-3 7-5 9-11 9h-3c-6 0-10-4-13-10l-6-15 20-32Z" fill="#c9e7f2" fill-opacity=".58"/>
         </g>
       </svg>
@@ -36,22 +42,16 @@
   </div>
   <div id="shell">
     <header class="tabstrip">
-      <div class="brand" aria-label="Vinyl">
-        <img src="../assets/logo.svg" alt=""/>
-      </div>
-      <button class="shelf-toggle tab-shelf-toggle" id="shelf-open" title="Bookmarks (Ctrl+Shift+B)" aria-label="Open bookmarks" aria-expanded="false"></button>
       <div class="tablist" id="tabs" role="tablist"></div>
       <button class="icon-button newtab-button" id="newtab" title="New tab (Ctrl+T)" aria-label="New tab"></button>
       <div class="title-drag-region"></div>
-      <button class="icon-button toolbar-pin" id="toolbar-pin" title="Pin or retract address bar" aria-label="Pin or retract address bar"></button>
-      <button id="more-menu" class="icon-button settings-top" title="Settings" aria-label="Settings"></button>
       <div class="window-controls" aria-label="Window controls">
         <button id="window-min" class="window-control" title="Minimize" aria-label="Minimize"></button>
         <button id="window-max" class="window-control" title="Maximize or restore" aria-label="Maximize or restore"></button>
         <button id="window-close" class="window-control close-control" title="Close Vinyl" aria-label="Close"></button>
       </div>
     </header>
-    <div class="toolbar">
+    <div class="toolbar" aria-label="Browser controls">
       <div class="navigation">
         <button class="icon-button" id="back" title="Back (Alt+Left)" aria-label="Back"></button>
         <button class="icon-button" id="forward" title="Forward (Alt+Right)" aria-label="Forward"></button>
@@ -62,14 +62,21 @@
         <input id="address" autocomplete="off" spellcheck="false" placeholder="Search or enter a website address" aria-label="Address or search"/>
         <button id="bookmark-current" class="icon-button small-icon" title="Bookmark this page (Ctrl+D)" aria-label="Bookmark this page"></button>
       </div>
-
+      <div class="dock-actions">      <button class="shelf-toggle tab-shelf-toggle" id="shelf-open" title="Bookmarks (Ctrl+Shift+B)" aria-label="Open bookmarks" aria-expanded="false"></button>
+      <button class="icon-button" id="toggles-open" title="Toggles" aria-label="Open Toggles" aria-expanded="false"></button>
+      <button class="icon-button" id="dock-hide" title="Hide all controls (Ctrl+Shift+H)" aria-label="Hide all controls"></button>
+      <button class="icon-button toolbar-pin" id="toolbar-pin" title="Pin or retract address bar" aria-label="Pin or retract address bar"></button>
+      <button id="more-menu" class="icon-button settings-top" title="Settings" aria-label="Settings"></button>
+<button class="icon-button google-profile" id="google-profile" data-action="google-profile" title="Sign in to your Google profile" aria-label="Sign in to your Google profile"></button></div>
     </div>
+    <button id="dock-handle" class="dock-handle" title="Show address bar (Ctrl+L)" aria-label="Show browser controls"></button>
     <div class="workspace" id="workspace">
       <aside class="shelf" id="shelf" aria-label="Vinyl shelf" inert>
         <div class="shelf-head">
           <div class="shelf-heading" id="shelf-heading">Bookmarks</div>
           <button class="icon-button" id="close-shelf" aria-label="Close shelf" title="Close shelf"></button>
         </div>
+        <nav class="shelf-sections" aria-label="Shelf sections"><button class="section-pill" data-action="shelf-section" data-section="bookmarks">Bookmarks</button><button class="section-pill" data-action="shelf-section" data-section="toggles">Toggles</button></nav>
         <div class="shelf-content" id="shelf-content"></div>
 
       </aside>
@@ -88,7 +95,7 @@
             <div class="settings-scroll" id="settings-scroll"><div class="settings-main" id="settings-main"></div></div>
           </div>
         </div>
-        <div class="home" id="home"><div class="home-material-roll" aria-hidden="true"><span class="roll-tube"></span><span class="roll-sheet"></span></div>
+        <div class="home" id="home">
           <div class="home-content">
             <div class="home-intro home-reveal" style="--delay:0ms">
               <div class="home-greeting">
@@ -97,24 +104,21 @@
               </div>
               <div class="home-time" aria-label="Current local time"><span id="home-clock">--:--</span><span class="home-ampm" id="home-ampm"></span></div>
             </div>
-            <div class="home-search home-reveal" style="--delay:110ms" id="home-search">
-              <span id="home-search-icon"></span>
-              <input type="text" id="home-address" placeholder="Search or enter a URL" aria-label="Search the web"/>
-              <div class="keycap">↵</div>
-            </div>
-            <div class="home-shortcuts home-reveal" style="--delay:180ms" id="home-shortcuts"></div>
-            <div class="home-section home-reveal" style="--delay:260ms" id="recent-block">
-              <div class="home-section-head"><h2>Recent tabs</h2></div>
-              <div class="recent-tabs" id="home-recents"></div>
-            </div>
-            <div class="home-lower home-reveal" style="--delay:340ms">
-              <section class="home-news" id="news-block" aria-label="Current news">
-                <div class="home-section-head"><h2>Today</h2><button class="home-text-action" data-action="refresh-news" title="Refresh news">Refresh</button></div>
-                <div id="home-news-items" class="home-news-items"><p class="home-empty">Loading news…</p></div>
+            <div class="home-grid">
+              <section class="home-start home-reveal" aria-label="Search and shortcuts">
+                <div class="home-search" id="home-search"><span id="home-search-icon"></span><input type="text" id="home-address" placeholder="Search or enter a URL" aria-label="Search the web"/><div class="keycap">↵</div></div>
+                <div class="home-shortcuts" id="home-shortcuts"></div>
               </section>
-              <section class="home-weather" id="weather-block" aria-label="Local weather">
+              <section class="home-weather home-reveal" id="weather-block" aria-label="Weather">
                 <div class="home-section-head"><h2>Weather</h2><button class="home-text-action" data-action="weather-location" title="Change weather city">City</button></div>
-                <div id="home-weather-content" class="home-weather-content"><p class="home-empty">Choose a city</p></div>
+                <div id="home-weather-content" class="home-weather-content"></div>
+              </section>
+              <section class="home-news home-reveal" id="news-block" aria-label="News">
+                <div class="home-section-head"><h2>News</h2><button class="home-text-action" data-action="refresh-news" title="Refresh news">Refresh</button></div>
+                <div id="home-news-items" class="home-news-items"></div>
+              </section>
+              <section class="home-section home-reveal" id="recent-block" aria-label="Recent tabs">
+                <div class="home-section-head"><h2>Recent tabs</h2></div><div class="recent-tabs" id="home-recents"></div>
               </section>
             </div>
           </div>

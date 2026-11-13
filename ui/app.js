@@ -58,6 +58,9 @@ const ui = {
   contextId: null, menuOpen: false, settingsSection: 'appearance', selectedChromeProfile: '',
   toolbarRevealed: true, lastActiveURL: '', splashComplete: false, homeFeed:null, homeLoadedAt:0
 };
+const shelfSurface = new URLSearchParams(location.search).get('surface') === 'shelf';
+document.body.dataset.surface = shelfSurface ? 'shelf' : 'browser';
+let tabDrag = null;
 let noticeTimer;
 let lastLayout = '';
 let toolbarTimer;
@@ -102,19 +105,22 @@ function applyAppearance() {
   document.body.dataset.theme = s.theme === 'system' ? (systemIsDark ? 'dark' : 'light') : (s.theme || 'light');
   document.body.dataset.accent = s.accent || 'blue';
   document.body.dataset.platform = ui.state?.platform || 'win32';
+  document.body.dataset.shelfExternal = String(Boolean(ui.state?.shelfExternal));
   document.body.dataset.shelf = (ui.shelfOpen && (s.shelfEnabled || ui.section === 'settings')) ? 'open' : 'closed';
   document.body.dataset.position = 'left';
   document.body.dataset.compactTabs = String(Boolean(s.compactTabs));
   document.body.dataset.compactToolbar = String(Boolean(s.compactToolbar));
   document.body.dataset.toolbarMode = s.addressBarMode || 'auto';
-  document.body.dataset.toolbarVisible = String((s.addressBarMode || 'auto') !== 'auto' || ui.toolbarRevealed || active()?.url === 'vinyl://settings');
+  const dockVisible = !ui.dockHidden && ((s.addressBarMode || 'auto') !== 'auto' || ui.toolbarRevealed);
+  document.body.dataset.toolbarVisible = String(dockVisible);
+  $('.toolbar').inert = !dockVisible;
   document.body.dataset.rounded = String(s.roundedPanels !== false);
   document.body.dataset.shadows = String(s.softShadows !== false);
   document.body.dataset.labels = String(s.showLabels !== false);
   document.body.dataset.largeText = String(Boolean(s.largeText));
   document.body.dataset.motion = s.reduceMotion ? 'reduce' : 'normal';
   $('#shelf').inert = !(ui.shelfOpen && (s.shelfEnabled || ui.section === 'settings'));
-  $('#shelf-open').setAttribute('aria-expanded', String(ui.shelfOpen && (s.shelfEnabled || ui.section === 'settings')));
+  $('#shelf-open').setAttribute('aria-expanded', String(ui.shelfOpen && s.shelfEnabled !== false && ui.section === 'bookmarks'));
   $('#shelf-open').setAttribute('aria-label',ui.shelfOpen ? 'Close bookmarks' : 'Open bookmarks');
   $('#home-shortcuts').hidden = s.showHomeShortcuts === false;
   $('#recent-block').hidden = s.showRecentTabs === false;
@@ -127,13 +133,13 @@ function renderTop() {
     const title = escapeHTML(tab.title || 'New tab');
     const faviconImg = tab.favicon && /^https?:\/\//.test(tab.favicon)
       ? `<img class="tab-icon" src="${escapeHTML(tab.favicon)}" alt=""/>`
-      : tab.url ? favicon(tab.url, tab.title, 'tab-favicon') : icon('grid', 15);
-    return `<div class="tab ${tab.id === ui.state.activeId ? 'active' : ''}" role="tab" aria-selected="${tab.id === ui.state.activeId}" data-tab="${escapeHTML(tab.id)}" title="${title}">
+      : tab.url ? favicon(tab.url, tab.title, 'tab-favicon') : '<img class="tab-icon vinyl-outline" src="../assets/logo-outline.svg" alt=""/>';
+    return `<div class="tab ${tab.id === ui.state.activeId ? 'active' : ''}" role="tab" tabindex="0" aria-selected="${tab.id === ui.state.activeId}" data-tab="${escapeHTML(tab.id)}" title="${title}">
       ${faviconImg}<span class="tab-title">${title}</span>
       <button class="tab-close" data-action="close-tab" data-id="${escapeHTML(tab.id)}" title="Close tab" aria-label="Close ${title}">${icon('x', 13)}</button>
     </div>`;
   }).join('');
-  $('#tabs').innerHTML = tabs;
+  if (!tabDrag && ui.tabsMarkup !== tabs) { $('#tabs').innerHTML = tabs; ui.tabsMarkup = tabs; }
   const tab = active();
   $('#back').disabled = !tab?.canGoBack;
   $('#forward').disabled = !tab?.canGoForward;
@@ -144,16 +150,25 @@ function renderTop() {
   const input = $('#address');
   if (document.activeElement !== input) input.value = tab?.url || '';
   $('#address-icon').innerHTML = icon(tab?.url?.startsWith('https://') ? 'lock' : 'search', 15);
+  const profile = ui.state.google?.profile;
+  $('#google-profile').innerHTML = profile ? `<span class="profile-initial">${escapeHTML((profile.name || profile.email || 'G').charAt(0))}</span>` : '<span class="google-letter">G</span>';
+  $('#google-profile').title = profile ? `${profile.name || profile.email} · Google profile` : 'Sign in to your Google profile';
+  $('#google-profile').setAttribute('aria-label',$('#google-profile').title);
   $('#toolbar-pin').innerHTML = icon(settings().addressBarMode === 'auto' ? 'pin' : 'chevron',16);
   $('#toolbar-pin').title = settings().addressBarMode === 'auto' ? 'Pin address bar' : 'Auto-retract address bar';
   $('#toolbar-pin').setAttribute('aria-pressed',String(settings().addressBarMode !== 'auto'));
   if (ui.lastActiveURL !== (tab?.url || '')) {
     ui.lastActiveURL = tab?.url || '';
     if (tab?.url !== 'vinyl://settings') scheduleToolbarRetract(1800);
-    else ui.toolbarRevealed = true;
+
   }
   const onSettings = tab?.url === 'vinyl://settings';
-  $('#home').style.display = tab?.url ? 'none' : 'flex';
+  $('#home').style.display = tab?.url ? 'none' : 'block';
+  if (!tab?.url && ui.homeTabId !== tab?.id) {
+    ui.homeTabId = tab?.id;
+    $('#home').classList.remove('home-enter');
+    requestAnimationFrame(() => $('#home').classList.add('home-enter'));
+  }
   $('#settings-page').hidden = !onSettings;
   if (onSettings) renderSettings();
   document.title = tab?.title && tab.title !== 'New tab' ? `${tab.title} — Vinyl` : 'Vinyl';
@@ -172,14 +187,15 @@ function renderHomeShortcuts() {
     { title: 'GitHub', url: 'https://github.com/' }
   ];
   const items = pinned.length ? pinned : defaults;
-  $('#home-shortcuts').innerHTML = items.map(bookmark => `<button class="shortcut" data-action="open-url" data-url="${escapeHTML(bookmark.url)}" title="${escapeHTML(bookmark.url)}"><span class="shortcut-icon">${favicon(bookmark.url, bookmark.title, 'home-favicon')}</span>${bookmark.title ? `<span>${escapeHTML(bookmark.title)}</span>` : ''}</button>`).join('');
+  const markup = items.map(bookmark => `<button class="shortcut" data-action="open-url" data-url="${escapeHTML(bookmark.url)}" title="${escapeHTML(bookmark.url)}"><span class="shortcut-icon">${favicon(bookmark.url, bookmark.title, 'home-favicon')}</span>${bookmark.title ? `<span>${escapeHTML(bookmark.title)}</span>` : ''}</button>`).join('');
+  if ($('#home-shortcuts').innerHTML !== markup) $('#home-shortcuts').innerHTML = markup;
 }
 function updateHomeClock() {
   const now = new Date();
   const h = now.getHours();
   const period = h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening';
   const greeting = $('#home-greeting');
-  if (greeting) greeting.innerHTML = `Good ${period}, Jack<span class="period">.</span>`;
+  if (greeting) greeting.innerHTML = `Good ${period}, ${escapeHTML(ui.state?.google?.profile?.name?.split(" ")[0] || "Jack")}<span class="period">.</span>`;
   const time = new Intl.DateTimeFormat('en-US',{hour:'numeric',minute:'2-digit'}).formatToParts(now);
   const hour = time.find(p=>p.type==='hour')?.value || '12';
   const min = time.find(p=>p.type==='minute')?.value || '00';
@@ -200,20 +216,57 @@ function renderRecentTabs() {
 }
 function renderNews() {
   const feed = ui.homeFeed;
-  const target = $('#home-news-items');
-  if (!target) return;
-  if (!feed) {target.innerHTML='<p class="home-empty">Loading headlines…</p>';return;}
-  if (!feed.news?.length) {target.innerHTML=`<p class="home-empty">${feed.newsError ? 'News unavailable right now.' : 'No headlines available.'}</p>`;return;}
-  target.innerHTML = feed.news.slice(0,4).map(item=>`<button class="news-line" data-action="open-url" data-url="${escapeHTML(item.url)}" title="Open on Google News"><span class="news-copy">${escapeHTML(item.title)}</span><span class="news-source">${escapeHTML(item.source)}</span></button>`).join('');
+  const items = feed?.news?.slice(0,4) || [];
+  $('#home-news-items').innerHTML = Array.from({length:4},(_,i)=> {
+    const item = items[i];
+    if (!item) return '<div class="news-card news-unavailable"><span>'+(!feed ? 'Loading news…' : 'Story unavailable')+'</span></div>';
+    const image = /^https:\/\//i.test(item.image || '') ? '<img class="news-image" src="'+escapeHTML(item.image)+'" alt="" referrerpolicy="no-referrer"/>' : '';
+    return '<button class="news-card" data-action="open-url" data-url="'+escapeHTML(item.url)+'"><span class="news-photo"><span class="news-photo-fallback">Image unavailable</span>'+image+'</span><span class="news-card-copy"><span class="news-source">'+escapeHTML(item.source)+'</span><span class="news-copy">'+escapeHTML(item.title)+'</span></span></button>';
+  }).join('');
 }
+function weatherType(code,isDay = true) {
+  if (code >= 95) return 'storm';
+  if ([71,73,75,77,85,86].includes(code)) return 'snow';
+  if (code >= 51) return 'rain';
+  if ([45,48].includes(code)) return 'fog';
+  if (code === 3) return 'cloud';
+  if (code === 2) return 'partly';
+  return isDay ? 'sun' : 'moon';
+}
+function weatherSymbol(code,isDay = true) {
+  const type = weatherType(code,isDay);
+  const sun = '<g class="symbol-sun"><circle cx="38" cy="31" r="17"/><path d="M38 5v-4M38 61v-5M12 31H6M70 31h-6M19 12l-4-4M57 50l4 4M57 12l4-4M19 50l-4 4"/></g>';
+  const moon = '<path class="symbol-moon" d="M52 10a25 25 0 1 0 20 36A26 26 0 0 1 52 10Z"/>';
+  const cloud = '<path class="symbol-cloud" d="M25 59a15 15 0 1 1 2-30 23 23 0 0 1 43-1 16 16 0 1 1 9 31Z"/>';
+  let art = type === 'sun' ? sun : type === 'moon' ? moon : (type === 'partly' ? (isDay ? sun : moon) : '')+cloud;
+  if(type==='rain') art += '<path class="symbol-rain" d="m32 66-4 8m23-8-4 8m23-8-4 8"/>';
+  if(type==='snow') art += '<g class="symbol-snow"><path d="M34 65v14m-6-10 12 7m-12 0 12-7M65 65v14m-6-10 12 7m-12 0 12-7"/></g>';
+  if(type==='storm') art += '<path class="symbol-lightning" d="m51 47-15 22h12l-4 16 23-28H54l6-10Z"/>';
+  if(type==='fog') art += '<path class="symbol-fog" d="M18 67h62M26 75h50"/>';
+  return '<svg class="weather-symbol '+type+'" viewBox="0 0 100 86" aria-hidden="true">'+art+'</svg>';
+}
+const weatherValue = value => Number.isFinite(value) ? String(value) : '—';
 function renderWeather() {
   const target = $('#home-weather-content');
   const feed = ui.homeFeed;
-  if (!feed?.weatherLocation) {target.innerHTML='<button class="weather-empty" data-action="weather-location">Choose your city</button>';return;}
-  if (!feed.weather) {target.innerHTML=`<div class="home-empty">${feed.weatherError ? 'Weather unavailable.' : 'Loading weather…'}</div><button class="weather-change" data-action="weather-location">${escapeHTML(feed.weatherLocation.name)}</button>`;return;}
+  if (!feed?.weatherLocation) {target.innerHTML='<div class="weather-setup">'+weatherSymbol(2)+'<button class="weather-empty" data-action="weather-location">Choose city</button></div>';return;}
+  if (!feed.weather) {target.innerHTML='<div class="home-empty">'+(feed.weatherError ? 'Weather unavailable.' : 'Loading weather…')+'</div><button class="weather-change" data-action="weather-location">'+escapeHTML(feed.weatherLocation.name)+'</button>';return;}
   const w=feed.weather;
-  const weatherIcon = w.code >= 51 ? 'cloud-rain' : w.code >= 2 ? 'cloud' : 'sun';
-  target.innerHTML = `<div class="weather-main"><span class="weather-glyph">${icon(weatherIcon,31)}</span><span class="weather-degrees">${w.temperature}°</span></div><div class="weather-condition">${escapeHTML(w.condition)}</div><div class="weather-meta">H: ${w.high}° &nbsp; L: ${w.low}°</div><button class="weather-change" data-action="weather-location">${escapeHTML(w.city)}</button>`;
+  $('#weather-block').dataset.weather = weatherType(w.code,w.isDay);
+  target.innerHTML = '<div class="weather-current"><div class="weather-reading"><span class="weather-degrees">'+weatherValue(w.temperature)+'°</span><div class="weather-condition">'+escapeHTML(w.condition)+'</div><div class="weather-meta">H '+weatherValue(w.high)+'° · L '+weatherValue(w.low)+'°</div></div>'+weatherSymbol(w.code,w.isDay)+'</div><div class="weather-bottom"><button class="weather-change" data-action="weather-location">'+escapeHTML(w.city)+'</button><div class="weather-views"><button data-action="weather-extended" data-view="hourly">Hourly</button><button data-action="weather-extended" data-view="daily">7 days</button></div></div>';
+}
+function showWeatherView(view) {
+  const w=ui.homeFeed?.weather;
+  if(!w) return;
+  const hourly=view==='hourly';
+  const rows = (hourly ? w.hourly : w.daily) || [];
+  const markup = rows.map(item=> {
+    const label = hourly ? new Date(item.time).toLocaleTimeString('en-US',{hour:'numeric'}) : new Date(item.time+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+    return '<div class="forecast-item"><span class="forecast-time">'+escapeHTML(label)+'</span>'+weatherSymbol(item.code,hourly?item.isDay:true)+'<strong>'+(hourly ? weatherValue(item.temperature)+'°' : weatherValue(item.high)+'° <span class="forecast-low">'+weatherValue(item.low)+'°</span>')+'</strong><span class="forecast-rain">'+weatherValue(item.rain)+'% precip.</span></div>';
+  }).join('');
+  $('#modal-root').innerHTML='<div class="modal-backdrop"><section class="modal weather-dialog" role="dialog" aria-modal="true" aria-labelledby="forecast-heading"><div class="forecast-head"><div><h2 id="forecast-heading">'+(hourly?'Hourly forecast':'7-day forecast')+'</h2><p>'+escapeHTML(w.city)+'</p></div><button class="icon-button" data-modal-cancel aria-label="Close forecast">'+icon('x')+'</button></div><div class="forecast-grid '+(hourly?'hourly':'daily')+'">'+(markup || '<p>Forecast unavailable.</p>')+'</div><div class="weather-details">Feels like '+weatherValue(w.feelsLike)+'° · Wind '+weatherValue(w.wind)+' mph · Humidity '+weatherValue(w.humidity)+'%</div></section></div>';
+  $('.modal-backdrop').addEventListener('click',event=>{if(event.target===event.currentTarget || event.target.closest('[data-modal-cancel]')) closeModal();});
+  $('[data-modal-cancel]').focus();
 }
 async function loadHomeFeed(force = false) {
   if (!window.vinyl || (!force && ui.homeLoadedAt && Date.now()-ui.homeLoadedAt < 15*60000)) return;
@@ -223,21 +276,25 @@ async function loadHomeFeed(force = false) {
 }
 function setShelf(section = 'bookmarks', open = true) {
   if (settings().shelfEnabled === false) { toast('Enable the shelf in Settings → Browser.'); return; }
-  ui.section = 'bookmarks';
+  ui.section = section === 'toggles' ? 'toggles' : 'bookmarks';
   ui.shelfOpen = open;
+  run('window:shelf',{open,section:ui.section}).catch(() => {});
   applyAppearance();
-  $('#shelf-heading').textContent = 'Bookmarks';
+  $('#shelf-heading').textContent = ui.section === 'toggles' ? 'Toggles' : 'Bookmarks';
   renderShelf();
   requestAnimationFrame(updateLayout);
 }
-function toggleShelf() { setShelf(ui.section, !ui.shelfOpen); }
+function toggleShelf() { setShelf('bookmarks', !ui.shelfOpen || ui.section !== 'bookmarks'); }
 function renderShelf() {
   if (!ui.state) return;
   const target = $('#shelf-content');
   const selected = document.activeElement;
   const preserve = selected?.id === 'shelf-search';
   const cursor = preserve ? selected.selectionStart : 0;
-  target.innerHTML = bookmarksHTML();
+  $('#shelf-heading').textContent = ui.section === 'toggles' ? 'Toggles' : 'Bookmarks';
+  $('.shelf-sections').querySelectorAll('button').forEach(button => {button.classList.toggle('selected',button.dataset.section===ui.section);button.setAttribute('aria-pressed',String(button.dataset.section===ui.section));});
+  $('#toggles-open').setAttribute('aria-expanded',String(ui.shelfOpen && ui.section==='toggles'));
+  target.innerHTML = ui.section === 'toggles' ? '<div class="toggles-empty">No toggles added.</div>' : bookmarksHTML();
   if (preserve) {
     const updated = $(`#${selected.id}`);
     updated?.focus();
@@ -283,7 +340,7 @@ const settingRows = [
     { key:'shelfEnabled', title:'Bookmark shelf', detail:'Show the integrated bookmarks drawer' },
     { key:'autoCloseShelf', title:'Close after opening', detail:'Collapse the shelf after you open a bookmark' },
     { key:'compactTabs', title:'Compact tabs', detail:'Slightly smaller tabs' },
-    { key:'addressBarMode', title:'Address bar', detail:'Keep it visible, make it compact, or retract after browsing', options:[['always','Always visible'],['compact','Compact'],['auto','Auto-retract']] },
+    { key:'addressBarMode', title:'Bottom controls', detail:'Show or automatically hide all bottom controls', options:[['always','Always visible'],['compact','Compact'],['auto','Auto-retract']] },
     { key:'compactToolbar', title:'Compact controls', detail:'Use smaller navigation buttons and address field' },
     { key:'showLabels', title:'App labels', detail:'Display titles below shelf icons' },
     { key:'showHomeShortcuts', title:'New tab shortcuts', detail:'Show your favorite websites on new tabs' },
@@ -306,7 +363,7 @@ function renderSettings() {
   const main = $('#settings-main');
   if (['appearance','browser','privacy'].includes(section)) {
     const group = settingRows.find(([title]) => title.toLowerCase() === section);
-    main.innerHTML = `<h1 class="settings-title">${group[0]}</h1><div class="settings-lead">${section === 'appearance' ? 'Make Vinyl feel like yours.' : section === 'browser' ? 'Everyday browsing preferences.' : 'Site permissions are requested as websites need them.'}</div><div class="settings-group">${group.slice(1).map(settingRow).join('')}</div>${section === 'privacy' ? `<div class="settings-fineprint">Vinyl's prototype browser does not yet include every Chrome security and privacy option. It will not claim to enforce protections that aren't implemented.</div>` : ''}`;
+    main.innerHTML = `<h1 class="settings-title">${group[0]}</h1><div class="settings-lead">${section === 'appearance' ? 'Theme, colors, and display options.' : section === 'browser' ? 'Everyday browsing preferences.' : 'Site permissions are requested as websites need them.'}</div><div class="settings-group">${group.slice(1).map(settingRow).join('')}</div>${section === 'privacy' ? `<div class="settings-fineprint">Vinyl's prototype browser does not yet include every Chrome security and privacy option. It will not claim to enforce protections that aren't implemented.</div>` : ''}`;
   } else if (section === 'account') {
     main.innerHTML = googleAccountSettings();
   } else if (section === 'chrome') {
@@ -359,7 +416,14 @@ function updateSettingsHTML() {
       </div>${control}</div></div>
     <div class="settings-fineprint">Installed GitHub Releases builds check automatically at startup and every six hours. When an update is downloaded, select Restart to update. Your bookmarks and browser data stay in Vinyl's user profile, separate from application files.</div>`;
 }
+function hideToolbar() {
+  clearTimeout(toolbarTimer);
+  if ($('.toolbar').contains(document.activeElement)) document.activeElement.blur();
+  ui.dockHidden = true; ui.toolbarRevealed = false;
+  applyAppearance(); requestAnimationFrame(updateLayout);
+}
 function revealToolbar() {
+  ui.dockHidden = false;
   clearTimeout(toolbarTimer);
   ui.toolbarRevealed = true;
   applyAppearance();
@@ -369,14 +433,14 @@ function scheduleToolbarRetract(delay = 650) {
   clearTimeout(toolbarTimer);
   if (settings().addressBarMode !== 'auto') return;
   toolbarTimer = setTimeout(() => {
-    if (document.activeElement === $('#address') || active()?.url === 'vinyl://settings') return;
+    if ($('.toolbar').contains(document.activeElement)) return;
     ui.toolbarRevealed = false;
     applyAppearance();
     requestAnimationFrame(updateLayout);
   }, delay);
 }
 function updateLayout() {
-  if (!window.vinyl || !ui.state) return;
+  if (!window.vinyl || !ui.state || shelfSurface) return;
   const bounds = $('#pageViewport').getBoundingClientRect();
   const payload = { x:Math.round(bounds.x), y:Math.round(bounds.y), width:Math.round(bounds.width), height:Math.round(bounds.height) };
   const serialized = JSON.stringify(payload);
@@ -385,8 +449,10 @@ function updateLayout() {
   invoke('browser:layout', payload).catch(() => {});
 }
 function render() {
+  if (typeof ui.state?.shelfOpen === 'boolean') ui.shelfOpen = ui.state.shelfOpen;
+  if (ui.state?.shelfSection) ui.section = ui.state.shelfSection;
   applyAppearance();
-  renderTop();
+  if (!shelfSurface) renderTop();
   renderShelf();
   requestAnimationFrame(updateLayout);
 }
@@ -428,7 +494,7 @@ function modalAddBookmark(existing = null) {
   const current = active();
   modal({
     title: existing ? 'Edit bookmark' : 'Add bookmark',
-    description: existing ? 'Keep your collection organized.' : 'Add a website to your shelf.',
+    description: existing ? 'Change the name or website address.' : 'Add a website to your shelf.',
     fields: [
       {key:'title',label:'Name',value:existing?.title || (current?.url ? current.title : ''),placeholder:'Website name',required:true},
       {key:'url',label:'Website address',value:existing?.url || current?.url || '',placeholder:'https://example.com',required:true}
@@ -449,7 +515,7 @@ function normalizedBookmark(value) {
   return parsed.href;
 }
 function modalFolder(existing = null) {
-  modal({ title:existing ? 'Rename folder' : 'New folder', description:'Create a little more space for your favorite links.', fields:[{key:'title',label:'Folder name',value:existing?.title || '',placeholder:'My bookmarks',required:true}],submitLabel:existing ? 'Save changes':'Create folder', onSubmit:data => existing ? run('bookmark:update',{id:existing.id,title:data.title},'Folder renamed') : run('bookmark:addFolder',{title:data.title,folderId:ui.folderId},'Folder created') });
+  modal({ title:existing ? 'Rename folder' : 'New folder', description:'Enter a folder name.', fields:[{key:'title',label:'Folder name',value:existing?.title || '',placeholder:'My bookmarks',required:true}],submitLabel:existing ? 'Save changes':'Create folder', onSubmit:data => existing ? run('bookmark:update',{id:existing.id,title:data.title},'Folder renamed') : run('bookmark:addFolder',{title:data.title,folderId:ui.folderId},'Folder created') });
 }
 function modalDelete(item) {
   modal({title:`Delete ${item.children ? 'folder' : 'bookmark'}?`,description:item.children ? `“${item.title}” and everything inside it will be removed from Vinyl.`:`“${item.title}” will be removed from your bookmarks.`,submitLabel:'Delete',destructive:true,onSubmit:()=>run('bookmark:remove',{id:item.id},'Bookmark removed')});
@@ -464,6 +530,8 @@ async function executeAction(button, event) {
   if (action !== 'bookmark-menu') closeMenu();
   try {
     switch(action) {
+      case 'shelf-section': return setShelf(button.dataset.section,true);
+      case 'weather-extended': return showWeatherView(button.dataset.view);
       case 'close-tab': return run('browser:close',{id});
       case 'open-url': await run('browser:navigate',{address:button.dataset.url}); if (settings().autoCloseShelf) setShelf(ui.section,false); return;
       case 'open-bookmark': return openBookmark(id, event.ctrlKey || event.metaKey || event.button === 1);
@@ -477,11 +545,15 @@ async function executeAction(button, event) {
       case 'pin-bookmark': return run('bookmark:pin',{id},'Favorites updated');
       case 'delete-bookmark': return modalDelete(locateBookmark(id));
       case 'clear-bookmark-search': ui.bookmarkSearch = ''; renderShelf(); return;
-      case 'open-chrome-settings': { ui.settingsSection = 'chrome'; setShelf(ui.section,false); await run('browser:openSettings'); return; }
+      case 'open-chrome-settings': { ui.settingsSection = 'chrome'; setShelf(ui.section,false); await run('browser:openSettings',{section:'chrome'}); return; }
       case 'link-chrome': return run('chrome:link',{profileId:ui.selectedChromeProfile},'Chrome profile linked');
       case 'unlink-chrome': return run('chrome:unlink',null,'Chrome profile unlinked');
       case 'refresh-chrome': return run('chrome:refresh',null,'Chrome data refreshed');
       case 'google-save-client': return run('google:setClientId',{clientId:$('#google-client-id')?.value},'Google client ID saved');
+      case 'google-profile': {
+        if (ui.state.google?.clientId && !ui.state.google?.connected) return run('google:signIn',null,'Google profile connected');
+        ui.settingsSection = 'account'; setShelf(ui.section,false); return run('browser:openSettings');
+      }
       case 'google-signin': return run('google:signIn',null,'Google account connected');
       case 'google-website': return run('google:openWebsite',{site:button.dataset.site});
       case 'google-signout': return run('google:signOut',null,'Google account disconnected');
@@ -498,7 +570,7 @@ async function executeAction(button, event) {
 }
 function focusAddress() {
   revealToolbar();
-  requestAnimationFrame(() => { $('#address').focus(); $('#address').select(); });
+  requestAnimationFrame(() => { $('#address').focus({preventScroll:true}); $('#address').select(); });
 }
 function bindEvents() {
   $('#newtab').innerHTML = icon('plus',17);
@@ -506,7 +578,11 @@ function bindEvents() {
   $('#forward').innerHTML = icon('forward',18);
   $('#reload').innerHTML = icon('reload',18);
   $('#close-shelf').innerHTML = icon('x',17);
-  $('#shelf-open').innerHTML = icon('sidebar',18);
+  $('#shelf-open').innerHTML = icon('bookmark',18);
+  $('#toggles-open').innerHTML = icon('sliders',18);
+  $('#dock-hide').innerHTML = icon('chevron',18);
+  $('#dock-hide').addEventListener('click',hideToolbar);
+  $('#toggles-open').addEventListener('click',()=>setShelf('toggles',!ui.shelfOpen || ui.section !== 'toggles'));
   $('#more-menu').innerHTML = icon('settings',18);
   $('#window-min').innerHTML = icon('minimize',15);
   $('#window-max').innerHTML = icon('maximize',13);
@@ -522,8 +598,9 @@ function bindEvents() {
   $('#toolbar-pin').addEventListener('click', () => { const next = settings().addressBarMode === 'auto' ? 'always' : 'auto'; if (next === 'auto') scheduleToolbarRetract(750); else revealToolbar(); run('settings:set',{key:'addressBarMode',value:next}).catch(()=>{}); });
   $('#close-shelf').addEventListener('click', () => setShelf(ui.section,false));
   $('#more-menu').addEventListener('click', () => { setShelf(ui.section,false); run('browser:openSettings').catch(() => {}); });
-  $('.tabstrip').addEventListener('mouseenter', revealToolbar);
-  $('.tabstrip').addEventListener('mouseleave', () => scheduleToolbarRetract(800));
+  $('#dock-handle').addEventListener('mouseenter', revealToolbar);
+  $('#dock-handle').addEventListener('click', focusAddress);
+  $('#dock-handle').addEventListener('focus', revealToolbar);
   $('.toolbar').addEventListener('mouseenter', revealToolbar);
   $('.toolbar').addEventListener('mouseleave', () => scheduleToolbarRetract(700));
   $('#address').addEventListener('focus', revealToolbar);
@@ -532,12 +609,61 @@ function bindEvents() {
   $('#window-max').addEventListener('click', () => run('window:maximize').catch(() => {}));
   $('#window-close').addEventListener('click', () => run('window:close').catch(() => {}));
   $('#tabs').addEventListener('click', event => {
-    if (event.target.closest('[data-action]')) return;
+    if (event.target.closest('[data-action]') || ui.suppressTabClick) return;
     const tab = event.target.closest('[data-tab]');
     if (tab) run('browser:activate',{id:tab.dataset.tab}).catch(() => {});
   });
+  $('#tabs').addEventListener('dragstart', event => event.preventDefault());
+  $('#tabs').addEventListener('pointerdown', event => {
+    const tab = event.target.closest('[data-tab]');
+    if (event.button !== 0 || !tab || event.target.closest('button')) return;
+    tabDrag = {id:tab.dataset.tab, startX:event.clientX, startY:event.clientY, pointerId:event.pointerId, moved:false};
+    $('#tabs').setPointerCapture(event.pointerId);
+  });
+  $('#tabs').addEventListener('pointermove', event => {
+    if (!tabDrag) return;
+    if (Math.hypot(event.clientX-tabDrag.startX,event.clientY-tabDrag.startY) < 6 && !tabDrag.moved) return;
+    tabDrag.moved = true;
+    document.body.classList.add('tab-dragging');
+    const strip = $('#tabs').getBoundingClientRect();
+    if (event.clientX < strip.left+30) $('#tabs').scrollLeft -= 16;
+    if (event.clientX > strip.right-30) $('#tabs').scrollLeft += 16;
+    const target = [...$('#tabs').children].find(el => el.dataset.tab !== tabDrag.id && event.clientX < el.getBoundingClientRect().x + el.getBoundingClientRect().width/2);
+    document.querySelectorAll('.drop-before').forEach(el => el.classList.remove('drop-before'));
+    target?.classList.add('drop-before');
+    tabDrag.beforeId = target?.dataset.tab || null;
+    const outside = event.clientY > strip.bottom+35 || event.clientY < -20 || event.clientX < -25 || event.clientX > innerWidth+25;
+    document.body.classList.toggle('tab-detaching',outside);
+    tabDrag.outside = outside;
+  });
+  const endTabDrag = async (event,cancel = false) => {
+    if (!tabDrag) return;
+    const drag = tabDrag; tabDrag = null;
+    if ($('#tabs').hasPointerCapture(drag.pointerId)) $('#tabs').releasePointerCapture(drag.pointerId);
+    document.body.classList.remove('tab-dragging','tab-detaching');
+    document.querySelectorAll('.drop-before').forEach(el => el.classList.remove('drop-before'));
+    if (drag.moved && !cancel) {
+      ui.suppressTabClick = true;
+      setTimeout(() => {ui.suppressTabClick = false;},100);
+      await run(drag.outside ? 'browser:detach' : 'browser:reorder', {id:drag.id,beforeId:drag.beforeId,x:event.screenX,y:event.screenY}).catch(() => {});
+    }
+    renderTop();
+  };
+  $('#tabs').addEventListener('pointerup', event => endTabDrag(event));
+  $('#tabs').addEventListener('pointercancel', event => endTabDrag(event,true));
+  $('#tabs').addEventListener('keydown', event => {
+    const tab = event.target.closest('[data-tab]');
+    if (!tab || event.target.closest('button')) return;
+    if (event.key === 'Enter' || event.key === ' ') {event.preventDefault();run('browser:activate',{id:tab.dataset.tab}).catch(()=>{});}
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && ['ArrowLeft','ArrowRight'].includes(event.key)) {
+      event.preventDefault();
+      const index = ui.state.tabs.findIndex(t => t.id === tab.dataset.tab);
+      const target = event.key === 'ArrowLeft' ? Math.max(0,index-1) : Math.min(ui.state.tabs.length,index+2);
+      run('browser:reorder',{id:tab.dataset.tab,beforeId:ui.state.tabs[target]?.id || null}).catch(()=>{});
+    }
+  });
   $('#address').addEventListener('keydown', event => {
-    if (event.key === 'Enter') { event.preventDefault(); run('browser:navigate',{address:event.currentTarget.value}).then(() => event.currentTarget.blur()).catch(() => {}); }
+    if (event.key === 'Enter') { event.preventDefault(); run('browser:navigate',{address:event.currentTarget.value}).then(() => $('#address').blur()).catch(() => {}); }
     if (event.key === 'Escape') { event.currentTarget.value = active()?.url || ''; event.currentTarget.blur(); }
   });
   $('#home-address').addEventListener('keydown', event => {
@@ -569,6 +695,7 @@ function bindEvents() {
     if (bookmark) { event.preventDefault(); bookmarkContext(bookmark.dataset.id,event); return; }
   });
   document.addEventListener('error', event => {
+    if (event.target.matches?.('.news-image')) {event.target.remove();return;}
     if (event.target.tagName === 'IMG' && event.target.closest('.pin-image,.favicon,.home-favicon,.tab-favicon,.recent-thumb')) {
       const img = event.target;
       if (img.dataset.fallback) { img.src=img.dataset.fallback;img.dataset.fallback=img.dataset.fallbackLast || '';img.dataset.fallbackLast=''; }
@@ -576,9 +703,10 @@ function bindEvents() {
     }
   }, true);
   document.addEventListener('keydown', event => {
-    if (event.key === 'Escape') { closeMenu(); closeModal(); }
+    if (event.key === 'Escape') { closeMenu(); closeModal(); if (tabDrag) endTabDrag(event,true); else if ($('.toolbar').contains(document.activeElement)) hideToolbar(); }
     if (event.ctrlKey || event.metaKey) {
-      if (event.key.toLowerCase() === 'b' && event.shiftKey) { event.preventDefault(); setShelf('bookmarks',!ui.shelfOpen || ui.section !== 'bookmarks'); }
+      if (event.key.toLowerCase() === 'h' && event.shiftKey) { event.preventDefault(); hideToolbar(); }
+      else if (event.key.toLowerCase() === 'b' && event.shiftKey) { event.preventDefault(); setShelf('bookmarks',!ui.shelfOpen || ui.section !== 'bookmarks'); }
       else if (event.key.toLowerCase() === 'l') { event.preventDefault(); focusAddress(); }
     }
   });
@@ -606,14 +734,17 @@ function bindEvents() {
   });
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',applyAppearance);
   const splash = $('#launch-splash');
-  setTimeout(() => { splash.classList.add('splash-finished'); setTimeout(() => splash.remove(), 650); }, window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 100 : 1750);
+  if (shelfSurface) splash.remove();
+  else setTimeout(() => { splash.classList.add('splash-finished'); $('#home').classList.remove('home-enter'); requestAnimationFrame(() => $('#home').classList.add('home-enter')); setTimeout(() => splash.remove(), 650); }, window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 100 : 2100);
   new ResizeObserver(() => requestAnimationFrame(updateLayout)).observe($('#pageViewport'));
   setInterval(updateHomeClock, 15000);
   setInterval(()=>{if(!$('#home').hidden && $('#home').style.display !== 'none')loadHomeFeed();},120000);
   window.addEventListener('resize', () => requestAnimationFrame(updateLayout));
   window.vinyl?.onState(incoming => { ui.state = incoming; render(); });
   window.vinyl?.onCommand(command => {
-    if (command === 'focus-address') { focusAddress(); }
+    if (command.startsWith('settings:')) { ui.settingsSection = command.slice(9); renderSettings(); }
+    if (command === 'hide-controls') hideToolbar();
+    else if (command === 'focus-address') { focusAddress(); }
     else if (command === 'open-bookmarks') setShelf('bookmarks',true);
     else if (command === 'bookmark-current') run('browser:bookmarkCurrent',null,'Bookmark added').catch(() => {});
   });

@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, WebContentsView, ipcMain, dialog, session, Menu, nativeTheme, shell, safeStorage } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, dialog, session, Menu, nativeTheme, shell, safeStorage, screen } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
@@ -13,17 +13,45 @@ const {fetchNews,fetchWeather,resolveCity} = require('./home-data');
 
 app.setName('Vinyl');
 if (process.platform === 'win32') app.setAppUserModelId('app.vinyl.browser');
-if (!app.requestSingleInstanceLock()) app.quit();
+const primaryInstance = app.requestSingleInstanceLock();
+if (!primaryInstance) app.quit();
 
 let store;
 let googleAccount;
 let updater;
+const contexts = new Set();
+const ipcOwners = new Map();
+const registeredChannels = new Set();
+let quitting = false;
+function broadcastAll() { for (const context of contexts) context.broadcast(); }
+function prepareShutdown() {
+  quitting = true;
+  for (const context of contexts) context.disposePages();
+}
+async function openBrowser(options = {}) {
+  const context = browserContext();
+  contexts.add(context);
+  try { await context.createWindow(options); return context; }
+  catch (error) { context.destroy(); contexts.delete(context); throw error; }
+}
+function browserContext() {
 let window;
+let shelfWindow = null;
+let shelfOpen = false;
+let shelfSection = 'bookmarks';
+let shelfAnimation = null;
+const handlers = new Map();
+const context = { broadcast, createWindow, createTab, capturePreview, browserShortcuts, disposePages, updateBrowserPreferences, watchLinkedChrome, setShelf,
+  get window() { return window; },
+  acceptTab(tab) { tab.owner = context; tabs.push(tab); activateTab(tab.id); },
+  destroy() { if (window && !window.isDestroyed()) window.destroy(); }
+};
 let tabs = [];
 let activeId = null;
 let browserArea = { x: 0, y: 104, width: 1100, height: 700 };
 let chromeBookmarks = [];
 let chromeWatcher = null;
+let chromeListener = null;
 let chromeError = '';
 let chromeUpdated = null;
 const previews = new Map();
@@ -84,6 +112,7 @@ function normalizedAddress(value) {
 }
 function state() {
   const selected = activeTab();
+  for (const tab of tabs) updateNavigation(tab);
   return {
     tabs: tabs.map(({id, title, url, favicon, loading, canGoBack, canGoForward}) => ({id, title, url, favicon, loading, canGoBack, canGoForward})),
     recentTabs: store.data.recentTabs.slice(0,4).map(item=>({...item,preview:previews.get(item.url)||''})),
@@ -95,11 +124,71 @@ function state() {
 
     importedChrome: store.data.importedChrome,
     active: selected ? { title: selected.title, url: selected.url, canGoBack: selected.canGoBack, canGoForward: selected.canGoForward, loading: selected.loading } : null,
-    maximized: Boolean(window && window.isMaximized()), platform: process.platform
+    maximized: Boolean(window && window.isMaximized()), fullscreen: Boolean(window?.isFullScreen()),
+    shelfOpen, shelfSection, shelfExternal: externalShelf(), platform: process.platform
   };
 }
 function broadcast() {
-  if (window && !window.isDestroyed() && !window.webContents.isLoadingMainFrame()) window.webContents.send('vinyl:state', state());
+  for (const target of [window, shelfWindow]) {
+    if (target && !target.isDestroyed() && !target.webContents.isLoadingMainFrame()) target.webContents.send('vinyl:state', state());
+  }
+}
+function disposePages() {
+  stopChromeWatcher();
+  clearInterval(shelfAnimation);
+  for (const tab of tabs) {
+    if (tab.view && !tab.view.webContents.isDestroyed()) tab.view.webContents.close({waitForBeforeUnload:false});
+    tab.view = null;
+  }
+}
+function externalShelf() {
+  return Boolean(window && !window.isDestroyed() && !window.isMaximized() && !window.isFullScreen());
+}
+function shelfBounds(width = 308) {
+  const b = window.getBounds();
+  return {x:b.x-width+1, y:b.y+54, width:Math.max(1,width), height:Math.max(300,b.height-108)};
+}
+function syncShelf() {
+  if (!window || window.isDestroyed()) return;
+  if (!shelfOpen || !externalShelf() || window.isMinimized()) shelfWindow?.hide();
+  else if (shelfWindow && !shelfWindow.isDestroyed()) {
+    clearInterval(shelfAnimation);
+    shelfWindow.setBounds(shelfBounds()); shelfWindow.showInactive();
+  }
+  broadcast();
+}
+async function setShelf(open, section = shelfSection) {
+  if (['bookmarks','toggles'].includes(section)) shelfSection = section;
+  shelfOpen = Boolean(open) && store.data.settings.shelfEnabled !== false;
+  clearInterval(shelfAnimation);
+  if (!shelfOpen || !externalShelf()) { syncShelf(); return; }
+  // Make room on the current display before extending the attached drawer.
+  const bounds = window.getBounds();
+  const work = screen.getDisplayMatching(bounds).workArea;
+  if (bounds.x < work.x+308) window.setBounds({...bounds,x:work.x+308,width:Math.min(bounds.width,work.width-308)});
+  if (!shelfWindow || shelfWindow.isDestroyed()) {
+    shelfWindow = new BrowserWindow({ ...shelfBounds(1), show:false, frame:false,
+      transparent:true, resizable:false, skipTaskbar:true, parent:window, hasShadow:true,
+      webPreferences:{preload:path.join(__dirname,'preload.js'),contextIsolation:true,sandbox:true,nodeIntegration:false}
+    });
+    const shelfId = shelfWindow.webContents.id;
+    ipcOwners.set(shelfId, {handlers, isShelf:true});
+    shelfWindow.webContents.setWindowOpenHandler(() => ({action:'deny'}));
+    shelfWindow.webContents.on('will-navigate', event => event.preventDefault());
+    shelfWindow.on('closed', () => {ipcOwners.delete(shelfId); shelfWindow = null;});
+    await shelfWindow.loadFile(path.join(__dirname,'ui','index.html'), {query:{surface:'shelf'}});
+  }
+  if (!shelfOpen || !externalShelf()) return;
+  shelfWindow.showInactive();
+  const start = Date.now();
+  shelfAnimation = setInterval(() => {
+    if (!shelfWindow || shelfWindow.isDestroyed() || !window || window.isDestroyed()) {clearInterval(shelfAnimation);return;}
+    const progress = store.data.settings.reduceMotion ? 1 : Math.min(1,(Date.now()-start)/240);
+    const width = Math.round(1+307*(1-Math.pow(1-progress,3)));
+    shelfWindow.setBounds(shelfBounds(width));
+    if (progress === 1) clearInterval(shelfAnimation);
+  },16);
+  broadcast();
 }
 function viewFor(tab) {
   // The shared default session persists cookies across tabs and app restarts.
@@ -112,24 +201,24 @@ function viewFor(tab) {
   const wc = view.webContents;
   wc.setZoomFactor(store.data.settings.defaultZoom / 100);
   wc.setWindowOpenHandler(({url}) => {
-    if (/^https?:\/\//i.test(url)) createTab(url, true);
+    if (/^https?:\/\//i.test(url)) tab.owner.createTab(url, true);
     return { action: 'deny' };
   });
-  wc.on('page-title-updated', (_event, title) => { tab.title = title || tab.title; broadcast(); });
+  wc.on('page-title-updated', (_event, title) => { tab.title = title || tab.title; tab.owner.broadcast(); });
   wc.on('page-favicon-updated', (_event, urls) => {
     const safe = urls.find(url => /^https?:\/\//i.test(url));
     tab.favicon = safe || '';
-    broadcast();
+    tab.owner.broadcast();
   });
-  wc.on('did-start-loading', () => { tab.loading = true; broadcast(); });
-  wc.on('did-stop-loading', () => { tab.loading = false; updateNavigation(tab); if (tab.url) { store.recordRecent(tab); setTimeout(() => capturePreview(tab), 900); } broadcast(); });
+  wc.on('did-start-loading', () => { tab.loading = true; tab.owner.broadcast(); });
+  wc.on('did-stop-loading', () => { tab.loading = false; updateNavigation(tab); if (tab.url) { store.recordRecent(tab); setTimeout(() => tab.owner.capturePreview(tab), 900); } tab.owner.broadcast(); });
   wc.on('did-navigate', (_event, url) => { updateURL(tab, url); });
   wc.on('did-navigate-in-page', (_event, url) => { updateURL(tab, url); });
-  wc.on('render-process-gone', () => { tab.loading = false; tab.title = 'Page crashed'; broadcast(); });
+  wc.on('render-process-gone', () => { tab.loading = false; tab.title = 'Page crashed'; tab.owner.broadcast(); });
   wc.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
-    if (code !== -3 && isMainFrame) { tab.loading = false; tab.title = 'Cannot load page'; broadcast(); }
+    if (code !== -3 && isMainFrame) { tab.loading = false; tab.title = 'Cannot load page'; tab.owner.broadcast(); }
   });
-  wc.on('before-input-event', browserShortcuts);
+  wc.on('before-input-event', (event,input) => tab.owner.browserShortcuts(event,input));
   return view;
 }
 function updateNavigation(tab) {
@@ -141,7 +230,7 @@ function updateNavigation(tab) {
 function updateURL(tab, url) {
   if (/^https?:\/\//i.test(url)) tab.url = url;
   updateNavigation(tab);
-  broadcast();
+  tab.owner.broadcast();
 }
 function detach(tab) {
   if (tab?.view && window && !window.isDestroyed()) {
@@ -164,7 +253,7 @@ function activateTab(id) {
 }
 function createTab(url = '', activate = true) {
   const tab = { id: randomUUID(), title: 'New tab', url: '', favicon: '', loading: false,
-    canGoBack: false, canGoForward: false, view: null };
+    canGoBack: false, canGoForward: false, view: null, owner: context };
   tabs.push(tab);
   if (activate || !activeId) activateTab(tab.id);
   if (url === 'vinyl://settings') { tab.url = url; tab.title = 'Settings'; tab.special = 'settings'; broadcast(); }
@@ -177,7 +266,7 @@ function navigate(id, input) {
   if (input === 'vinyl://settings') {
     detach(tab);
     tab.url = input; tab.title = 'Settings'; tab.special = 'settings';
-    if (tab.view && !tab.view.webContents.isDestroyed()) { tab.view.webContents.close(); tab.view = null; }
+    if (tab.view && !tab.view.webContents.isDestroyed()) { tab.view.webContents.close({waitForBeforeUnload:false}); tab.view = null; }
     broadcast(); return;
   }
   const target = normalizedAddress(input);
@@ -200,7 +289,7 @@ function closeTab(id) {
   const [closed] = tabs.splice(index, 1);
   noteRecent(closed);
   detach(closed);
-  if (closed.view && !closed.view.webContents.isDestroyed()) closed.view.webContents.close();
+  if (closed.view && !closed.view.webContents.isDestroyed()) closed.view.webContents.close({waitForBeforeUnload:false});
   if (activeId === id) {
     activeId = null;
     if (!tabs.length) createTab();
@@ -222,7 +311,9 @@ function browserShortcuts(event, input) {
   if (input.type !== 'keyDown') return;
   const key = input.key.toLowerCase();
   const modifier = process.platform === 'darwin' ? input.meta : input.control;
-  if (modifier && key === 'l') { event.preventDefault(); command('focus-address'); }
+  if (key === 'f11') { event.preventDefault(); window.setFullScreen(!window.isFullScreen()); }
+  else if (modifier && input.shift && key === 'h') { event.preventDefault(); command('hide-controls'); }
+  else if (modifier && key === 'l') { event.preventDefault(); command('focus-address'); }
   else if (modifier && key === 't') { event.preventDefault(); createTab(); command('focus-address'); }
   else if (modifier && key === 'w') { event.preventDefault(); closeTab(activeId); }
   else if (modifier && key === 'r') { event.preventDefault(); activeTab()?.view?.webContents.reload(); }
@@ -242,8 +333,9 @@ function openSettings() {
   else createTab('vinyl://settings');
 }
 function stopChromeWatcher() {
-  if (chromeWatcher) fs.unwatchFile(chromeWatcher);
+  if (chromeWatcher && chromeListener) fs.unwatchFile(chromeWatcher,chromeListener);
   chromeWatcher = null;
+  chromeListener = null;
 }
 function refreshLinkedChrome() {
   const profile = store.data.chromeProfileId;
@@ -259,9 +351,10 @@ function watchLinkedChrome() {
   if (!store.data.chromeProfileId) return;
   const file = path.join(chromeBridge.chromeRoot(), store.data.chromeProfileId, 'Bookmarks');
   chromeWatcher = file;
-  fs.watchFile(file, { interval: 3000 }, (current, previous) => {
+  chromeListener = (current, previous) => {
     if (current.mtimeMs !== previous.mtimeMs || current.size !== previous.size) refreshLinkedChrome();
-  });
+  };
+  fs.watchFile(file, { interval: 3000 }, chromeListener);
 }
 async function importChrome({profileId} = {}) {
   const profiles = chromeBridge.chromeProfiles();
@@ -313,12 +406,10 @@ function updateBrowserPreferences() {
   session.defaultSession.spellCheckerEnabled = prefs.spellcheck;
   if (prefs.spellcheck) session.defaultSession.setSpellCheckerLanguages(['en-US']);
 }
-async function createWindow() {
-  store = new Store(app.getPath('userData'));
-  googleAccount = new GoogleAccount(app.getPath('userData'), safeStorage);
-  updater = setupUpdater(app, broadcast);
+async function createWindow({empty = false, position} = {}) {
   window = new BrowserWindow({
     width: 1380, height: 880, minWidth: 880, minHeight: 600,
+    ...(position || {}),
     backgroundColor: '#f5f7f8', title: 'Vinyl', show: false,
     icon: path.join(__dirname, 'assets', process.platform === 'win32' ? 'vinyl.ico' : 'vinyl.png'),
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hidden', trafficLightPosition: { x: 16, y: 13 } } : { frame: false, thickFrame: true }),
@@ -330,28 +421,43 @@ async function createWindow() {
   Menu.setApplicationMenu(null);
   window.webContents.on('before-input-event', browserShortcuts);
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  window.on('maximize', broadcast); window.on('unmaximize', broadcast);
+  window.webContents.on('will-navigate', event => event.preventDefault());
+  for (const event of ['maximize','unmaximize','enter-full-screen','leave-full-screen','move','resize','restore']) window.on(event,syncShelf);
+  window.on('minimize', () => shelfWindow?.hide());
+  const shellId = window.webContents.id;
+  ipcOwners.set(shellId, {handlers, isShelf:false});
+  registerIpc();
+  window.on('close', disposePages);
   window.on('closed', () => {
-    stopChromeWatcher();
-    for (const tab of tabs) if (tab.view && !tab.view.webContents.isDestroyed()) tab.view.webContents.close();
+    disposePages();
+    if (shelfWindow && !shelfWindow.isDestroyed()) shelfWindow.destroy();
+    ipcOwners.delete(shellId); contexts.delete(context);
     tabs = []; window = null;
   });
   await window.loadFile(path.join(__dirname, 'ui', 'index.html'));
-  createTab();
+  if (!empty) createTab();
   updateWindowAppearance();
   updateBrowserPreferences();
   watchLinkedChrome();
   window.show();
   // Browser extensions are not enabled in Vinyl's current feature set.
-  googleAccount.restore().then(broadcast).catch(error => console.warn('Google account restoration:', error.message));
+
 }
 
 function registerIpc() {
-  const receive = (name, handler) => ipcMain.handle(name, async (_event, payload) => {
-    const result = await handler(payload || {});
-    if (name !== 'browser:layout' && name !== 'app:state') broadcast();
-    return result;
-  });
+  const receive = (name, handler) => {
+    handlers.set(name, handler);
+    if (registeredChannels.has(name)) return;
+    registeredChannels.add(name);
+    ipcMain.handle(name, async (event,payload) => {
+      const owner = ipcOwners.get(event.sender.id);
+      if (!owner || event.senderFrame !== event.sender.mainFrame) throw new Error('Untrusted Vinyl action');
+      if (owner.isShelf && name === 'browser:layout') return;
+      const result = await owner.handlers.get(name)(payload || {});
+      if (!['browser:layout','app:state'].includes(name)) broadcastAll();
+      return result;
+    });
+  };
   receive('app:state', () => state());
   receive('window:minimize', () => window.minimize());
   receive('window:maximize', () => { if (window.isMaximized()) window.unmaximize(); else window.maximize(); });
@@ -359,13 +465,40 @@ function registerIpc() {
   receive('browser:newTab', ({ url = '' }) => createTab(url));
   receive('browser:activate', ({id}) => activateTab(id));
   receive('browser:close', ({id}) => closeTab(id));
+  receive('window:shelf', ({open,section}) => setShelf(open,section));
+  receive('browser:reorder', ({id,beforeId}) => {
+    const index = tabs.findIndex(t => t.id === id);
+    if (index < 0 || id === beforeId || (beforeId && !tabs.some(t => t.id === beforeId))) return;
+    const [tab] = tabs.splice(index,1);
+    const target = beforeId ? tabs.findIndex(t => t.id === beforeId) : tabs.length;
+    tabs.splice(target,0,tab);
+  });
+  receive('browser:detach', async ({id,x,y}) => {
+    const tab = tabs.find(t => t.id === id);
+    if (!tab || tab.transferring) return;
+    tab.transferring = true;
+    let destination;
+    try {
+      const point = Number.isFinite(x) && Number.isFinite(y) ? {x:Math.round(x),y:Math.round(y)} : screen.getCursorScreenPoint();
+      const work = screen.getDisplayNearestPoint(point).workArea;
+      const width = Math.min(1200,work.width), height = Math.min(820,work.height);
+      destination = await openBrowser({empty:true,position:{width,height,x:Math.max(work.x,Math.min(work.x+work.width-width,point.x-160)),y:Math.max(work.y,Math.min(work.y+work.height-height,point.y-20))}});
+      if (!window || window.isDestroyed() || !tabs.includes(tab)) {destination.destroy();return;}
+      detach(tab);
+      tabs.splice(tabs.indexOf(tab),1);
+      if (activeId === id) {activeId = null;if (tabs.length) activateTab(tabs[0].id);}
+      destination.acceptTab(tab);
+      if (!tabs.length) window.close();
+    } catch (error) { destination?.destroy(); throw error; }
+    finally { tab.transferring = false; }
+  });
   receive('browser:navigate', ({id, address}) => navigate(id || activeId, address));
   receive('browser:back', () => navigateHistory('back'));
   receive('browser:forward', () => navigateHistory('forward'));
   receive('browser:reload', () => activeTab()?.view?.webContents.reload());
   receive('browser:stop', () => activeTab()?.view?.webContents.stop());
   receive('browser:duplicate', () => createTab(activeTab()?.url || ''));
-  receive('browser:openSettings', () => openSettings());
+  receive('browser:openSettings', ({section}) => { openSettings(); if (['chrome','account','about','browser','appearance'].includes(section)) command(`settings:${section}`); });
   receive('browser:bookmarkCurrent', () => store.addBookmark(currentBookmarkPayload()));
   receive('browser:layout', area => {
     if (!window || window.isDestroyed()) return;
@@ -400,14 +533,15 @@ function registerIpc() {
   receive('bookmark:importHTML', () => importChromeHTML());
   receive('settings:set', ({key, value}) => {
     store.setSetting(key, value);
+    if (key === 'shelfEnabled' && !value) for (const owner of contexts) owner.setShelf(false);
     if (key === 'theme') updateWindowAppearance();
-    if (key === 'defaultZoom' || key === 'spellcheck') updateBrowserPreferences();
+    if (key === 'defaultZoom' || key === 'spellcheck') for (const owner of contexts) owner.updateBrowserPreferences();
   });
   receive('chrome:link', ({profileId}) => {
     if (!chromeBridge.chromeProfiles().some(p => p.id === profileId)) throw new Error('Chrome profile not found');
-    store.setChromeProfile(profileId); watchLinkedChrome();
+    store.setChromeProfile(profileId); for (const owner of contexts) owner.watchLinkedChrome();
   });
-  receive('chrome:unlink', () => { store.setChromeProfile(null); stopChromeWatcher(); refreshLinkedChrome(); });
+  receive('chrome:unlink', () => { store.setChromeProfile(null); for (const owner of contexts) owner.watchLinkedChrome(); });
   receive('chrome:refresh', () => refreshLinkedChrome());
   receive('google:setClientId', ({clientId}) => {
     const next = String(clientId || '').trim();
@@ -429,9 +563,13 @@ function registerIpc() {
   receive('updates:install', () => updater.install());
   receive('app:about', () => ({ electron: process.versions.electron, chrome: process.versions.chrome, node: process.versions.node, version: app.getVersion() }));
 }
-app.whenReady().then(async () => {
-  nativeTheme.on('updated', updateWindowAppearance);
-  registerIpc();
+return context;
+}
+if (primaryInstance) app.whenReady().then(async () => {
+  store = new Store(app.getPath('userData'));
+  googleAccount = new GoogleAccount(app.getPath('userData'), safeStorage);
+  updater = setupUpdater(app, broadcastAll, {beforeInstall:() => store.save()});
+  nativeTheme.themeSource = store.data.settings.theme || 'system';
   session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
     if (store?.data.settings.doNotTrack) details.requestHeaders.DNT = '1';
     callback({ requestHeaders: details.requestHeaders });
@@ -439,7 +577,7 @@ app.whenReady().then(async () => {
   session.defaultSession.setPermissionRequestHandler(async (webContents, permission, callback, details) => {
     const domain = (() => { try { return new URL(details.requestingUrl || webContents.getURL()).hostname; } catch { return 'this website'; } })();
     try {
-      const { response } = await dialog.showMessageBox(window, {
+      const { response } = await dialog.showMessageBox(BrowserWindow.getFocusedWindow(), {
         type: 'question', buttons: ['Allow', 'Block'], defaultId: 1, cancelId: 1,
         title: 'Website permission', message: `${domain} requests ${permission} access.`,
         detail: 'Only allow this if you trust the website.'
@@ -447,9 +585,11 @@ app.whenReady().then(async () => {
       callback(response === 0);
     } catch { callback(false); }
   });
-  await createWindow();
-  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+  await openBrowser();
+  googleAccount.restore().then(broadcastAll).catch(error => console.warn('Google account restoration:', error.message));
+  app.on('activate', () => { if (!quitting && contexts.size === 0) openBrowser(); });
 }).catch(error => dialog.showErrorBox('Vinyl failed to launch', error.stack || String(error)));
 
-app.on('second-instance', () => { if (window) { if (window.isMinimized()) window.restore(); window.focus(); } });
+app.on('before-quit', prepareShutdown);
+app.on('second-instance', () => { const window = [...contexts][0]?.window; if (window) { if (window.isMinimized()) window.restore(); window.focus(); } });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

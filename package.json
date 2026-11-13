@@ -1,8 +1,8 @@
 {
   "name": "vinyl-browser",
   "productName": "Vinyl",
-  "version": "0.6.0",
-  "description": "Vinyl browser with integrated bookmark shelf, a minimal home page, and GitHub Releases automatic updates",
+  "version": "0.7.1",
+  "description": "Vinyl browser with sculpted glass controls, detachable tabs, an outward bookmark drawer and GitHub updates",
   "private": true,
   "main": "main.js",
   "scripts": {
@@ -10,7 +10,10 @@
     "build:win": "node scripts/configure-build.js && electron-builder --config builder.generated.json --win nsis --x64 --publish never",
     "build:linux": "node scripts/configure-build.js && electron-builder --config builder.generated.json --linux AppImage --x64",
     "check": "node --check main.js && node --check preload.js && node --check google-account.js && node --check updates.js && node --check store.js && node --check import-bookmarks.js && node --check home-data.js && node --check ui/app.js && node tests/store.test.js && node tests/chrome-bridge.test.js && node tests/google-account.test.js && node tests/updates.test.js && node tests/google-login-flow.test.js && node --check scripts/configure-build.js && node tests/import-bookmarks.test.js && node tests/home-data.test.js && node tests/release-config.test.js && node --check scripts/release-config.js && node --check scripts/check-release-tag.js && node tests/updater-lifecycle.test.js",
-    "publish:win": "node scripts/configure-build.js --release && electron-builder --config builder.generated.json --win nsis --x64 --publish always"
+    "publish:win": "node scripts/configure-build.js --release && electron-builder --config builder.generated.json --win nsis --x64 --publish always",
+    "test:runtime": "node tests/runtime.test.cjs",
+    "test:installer": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/installer-process.test.ps1",
+    "test:installer-location": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/installer-location.test.ps1"
   },
   "devDependencies": {
     "electron": "^45.3.0",
@@ -24,7 +27,8 @@
     "productName": "Vinyl",
     "asar": true,
     "directories": {
-      "output": "dist"
+      "output": "dist",
+      "buildResources": "assets"
     },
     "files": [
       "main.js",
@@ -64,7 +68,8 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Vinyl",
-      "artifactName": "Vinyl-Setup-${version}.${ext}"
+      "artifactName": "Vinyl-Setup-${version}.${ext}",
+      "include": "scripts/installer.nsh"
     },
     "linux": {
       "icon": "assets/vinyl.png",

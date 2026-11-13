@@ -1,20 +1,22 @@
-# Set up Vinyl's automatic GitHub updates
+# Publish Vinyl updates to VGJack/vinyl
 
-**First update from v0.5:** install v0.6 manually from the published GitHub release once. v0.5 has no configured update feed.
+The Git remote and `update-config.json` both point to `VGJack/vinyl`. The app version for this change is **0.7.1**.
 
-1. Create a **public** GitHub repository (for example, `yourname/Vinyl`).
-2. Upload the **contents** of `Vinyl-browser`, not the enclosing folder, so `package.json` is at the repository root.
-3. Push the source to `main`.
-4. Create and push a version tag that exactly matches `package.json`:
+1. Commit and push the reviewed contents of the `vinyl` directory to `main`. `package.json` and `.github/workflows/windows-build.yml` must be at the GitHub repository root. Include `package-lock.json`.
+2. Tag that commit with the complete package version:
 
-   ```bash
-   git tag v0.6.0
-   git push origin v0.6.0
+   ```sh
+   git tag v0.7.1
+   git push origin v0.7.1
    ```
 
-5. Watch **Actions → Vinyl Windows**. A successful tagged run uploads `Vinyl-Setup-0.6.0.exe`, `latest.yml`, and related update assets to a draft release.
-6. Open **Releases**, inspect the draft release, and click **Publish release**. The update client ignores drafts.
-7. Download and run `Vinyl-Setup-0.6.0.exe` once on top of your existing Vinyl installation, preserving the same Windows user and install location.
-8. Next time, update `package.json` to `0.7.0`, push the code, push `v0.7.0`, publish the draft release, and open Vinyl. Vinyl will check automatically and offer **Restart to update**.
+3. Wait for **Actions → Vinyl Windows** to succeed. The tag must be `v0.7.1`, not `v0.7`; the workflow deliberately rejects version mismatches.
+4. Inspect the resulting draft release. It must contain `Vinyl-Setup-0.7.1.exe`, the installer `.blockmap`, and `latest.yml`. Publish the draft only after reviewing the build.
+5. Install this release manually once over any old local Vinyl build that has no update channel. Keep the same Windows user, installation scope/location, product name, and app ID.
+6. For later releases, bump both package files, build/tag the matching version, and publish all generated release assets. Installed 0.7 copies can discover those releases automatically.
 
-Important: use the same application ID, installation scope, and preferably the same code signing certificate. If the repository is private, regular GitHub Releases updates are not directly accessible to the installed browser without additional authentication. A public releases repository is recommended. Automatic updates are configured but were not tested with a built Windows executable here.
+The existing published `v0.6` release had no binary/update assets when inspected. GitHub's automatically generated source archives do not supply `latest.yml` and cannot be installed by electron-updater.
+
+The local build produces the same three files in `dist/` without uploading them. Never mix the metadata from one installer with a different executable: `latest.yml` contains that executable's SHA-512 hash and size. Do not attach a 0.7.1 installer to the old v0.6 release; the release tag must match the metadata version.
+
+No source push, Git tag, or release publication is performed by the local build command.

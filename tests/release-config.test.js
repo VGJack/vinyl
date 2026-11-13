@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { parseRepository, resolveRepository } = require('../scripts/release-config');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
+assert.deepEqual(resolveRepository(root, {}), { owner: 'VGJack', repo: 'vinyl' });
 assert.deepEqual(parseRepository('owner/vinyl'), { owner: 'owner', repo: 'vinyl' });
 assert.deepEqual(parseRepository('my-team/Vinyl.Browser'), { owner: 'my-team', repo: 'Vinyl.Browser' });
 assert.equal(parseRepository(''), null);

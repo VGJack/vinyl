@@ -66,7 +66,9 @@ function setupUpdater(app, broadcast, options = {}) {
       status.progress = 100;
       notify('ready', `Vinyl ${info.version} is ready to install.`);
     });
-    updater.on('error', error => notify('error', `Update check failed: ${error.message}`));
+    updater.on('error', error => notify('error', /404|latest.yml|No published versions/i.test(error.message)
+      ? 'No installable release is published yet. The GitHub release needs latest.yml and its Windows installer.'
+      : `Update check failed: ${error.message}`));
 
     app.whenReady().then(() => {
       const initialTimer = setTimeout(() => check().catch(() => {}), INITIAL_CHECK_DELAY_MS);
@@ -83,7 +85,9 @@ function setupUpdater(app, broadcast, options = {}) {
     check,
     install: () => {
       if (!updater || status.state !== 'ready') throw new Error('No downloaded update is ready to install.');
-      updater.quitAndInstall(false, true);
+      options.beforeInstall?.();
+      // Let the IPC response reach the UI before the installer tears down windows.
+      setImmediate(() => updater.quitAndInstall(true, true));
     }
   };
 }
