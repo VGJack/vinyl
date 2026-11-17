@@ -8,6 +8,7 @@ const { Store } = require('./store');
 const chromeBridge = require('./chrome-bridge');
 const { parseNetscapeBookmarks } = require('./import-bookmarks');
 const { setupUpdater } = require('./updates');
+const {GoogleProfile} = require('./google-profile');
 const {fetchNews,fetchWeather,resolveCity} = require('./home-data');
 
 app.setName('Vinyl');
@@ -17,6 +18,8 @@ if (!primaryInstance) app.quit();
 
 let store;
 let updater;
+let googleProfile;
+let focusedContext;
 const contexts = new Set();
 const ipcOwners = new Map();
 const registeredChannels = new Set();
@@ -34,6 +37,9 @@ async function openBrowser(options = {}) {
 }
 function browserContext() {
 let window;
+let dockView = null;
+let dockOpen = false;
+let profileTimer;
 let shelfWindow = null;
 let shelfOpen = false;
 let shelfSection = 'bookmarks';
@@ -41,6 +47,7 @@ let shelfAnimation = null;
 const handlers = new Map();
 const context = { broadcast, createWindow, createTab, capturePreview, browserShortcuts, disposePages, updateBrowserPreferences, watchLinkedChrome, setShelf,
   get window() { return window; },
+  isActive(tab) {return tab.id===activeId;},
   acceptTab(tab) { tab.owner = context; tabs.push(tab); activateTab(tab.id); },
   destroy() { if (window && !window.isDestroyed()) window.destroy(); }
 };
@@ -115,6 +122,7 @@ function state() {
     tabs: tabs.map(({id, title, url, favicon, loading, canGoBack, canGoForward}) => ({id, title, url, favicon, loading, canGoBack, canGoForward})),
     recentTabs: store.data.recentTabs.slice(0,4).map(item=>({...item,preview:previews.get(item.url)||''})),
     activeId, bookmarks: [...store.data.bookmarks, ...chromeBookmarks], settings: store.data.settings,
+    google: {picture:googleProfile?.picture || ''},
     updates: updater?.status || {state:'unconfigured',message:'Update feed not configured.'},
     chrome: { profiles: chromeBridge.chromeProfiles(), linkedProfile: store.data.chromeProfileId,
       bookmarkCount: chromeBookmarks.length, lastUpdated: chromeUpdated, error: chromeError },
@@ -122,15 +130,16 @@ function state() {
     importedChrome: store.data.importedChrome,
     active: selected ? { title: selected.title, url: selected.url, canGoBack: selected.canGoBack, canGoForward: selected.canGoForward, loading: selected.loading } : null,
     maximized: Boolean(window && window.isMaximized()), fullscreen: Boolean(window?.isFullScreen()),
-    shelfOpen, shelfSection, shelfExternal: externalShelf(), platform: process.platform
+    shelfOpen, shelfSection, shelfExternal: externalShelf(), dockOpen, platform: process.platform
   };
 }
 function broadcast() {
-  for (const target of [window, shelfWindow]) {
-    if (target && !target.isDestroyed() && !target.webContents.isLoadingMainFrame()) target.webContents.send('vinyl:state', state());
+  for (const wc of [window?.webContents, shelfWindow?.webContents, dockView?.webContents]) {
+    if (wc && !wc.isDestroyed() && !wc.isLoadingMainFrame()) wc.send('vinyl:state', state());
   }
 }
 function disposePages() {
+  clearInterval(profileTimer);
   stopChromeWatcher();
   clearInterval(shelfAnimation);
   for (const tab of tabs) {
@@ -140,6 +149,19 @@ function disposePages() {
 }
 function externalShelf() {
   return Boolean(window && !window.isDestroyed() && !window.isMaximized() && !window.isFullScreen());
+}
+function layoutDock() {
+  if (!dockView || !window || window.isDestroyed()) return;
+  const [width,height] = window.getContentSize();
+  const dockWidth = Math.min(800,width-24);
+  dockView.setBounds({x:Math.round((width-dockWidth)/2),y:height-78,width:dockWidth,height:78});
+}
+function setDock(open, focus = false) {
+  dockOpen = Boolean(open);
+  dockView?.setVisible(dockOpen);
+  layoutDock();
+  broadcast();
+  if (dockOpen && focus) {dockView.webContents.focus();dockView.webContents.send('vinyl:command','focus-address');}
 }
 function shelfBounds(width = 308) {
   const b = window.getBounds();
@@ -221,6 +243,8 @@ function viewFor(tab) {
     if (code !== -3 && isMainFrame) { tab.loading = false; tab.title = 'Cannot load page'; tab.owner.broadcast(); }
   });
   wc.on('before-input-event', (event,input) => tab.owner.browserShortcuts(event,input));
+  wc.on('did-finish-load',()=>{if(tab.owner.isActive(tab) && focusedContext===tab.owner)googleProfile.refresh(wc);});
+  wc.on('did-navigate-in-page',()=>{if(tab.owner.isActive(tab) && focusedContext===tab.owner)googleProfile.refresh(wc);});
   return view;
 }
 function updateNavigation(tab) {
@@ -244,10 +268,12 @@ function activateTab(id) {
   if (!next) return;
   if (activeId !== id) { noteRecent(activeTab()); detach(activeTab()); }
   activeId = id;
+  focusedContext=context;
   if (next.view) {
-    window.contentView.addChildView(next.view);
+    window.contentView.addChildView(next.view,0);
     next.view.setBounds(browserArea);
     next.view.webContents.focus();
+    googleProfile.refresh(next.view.webContents);
   } else {
     window.webContents.focus();
   }
@@ -279,7 +305,7 @@ function navigate(id, input) {
   tab.favicon = '';
   const view = viewFor(tab);
   if (id === activeId) {
-    window.contentView.addChildView(view);
+    window.contentView.addChildView(view,0);
     view.setBounds(browserArea);
   }
   view.webContents.loadURL(target).catch(() => {});
@@ -307,6 +333,8 @@ function navigateHistory(method) {
   if (method === 'forward' && history.canGoForward()) history.goForward();
 }
 function command(name) {
+  if (name === 'focus-address') {setDock(true,true);return;}
+  if (name === 'hide-controls') {setDock(false);return;}
   if (window && !window.isDestroyed()) window.webContents.send('vinyl:command', name);
 }
 function browserShortcuts(event, input) {
@@ -426,22 +454,37 @@ async function createWindow({empty = false, position} = {}) {
   window.webContents.on('will-navigate', event => event.preventDefault());
   for (const event of ['maximize','unmaximize','enter-full-screen','leave-full-screen','move','resize','restore']) window.on(event,syncShelf);
   window.on('minimize', () => shelfWindow?.hide());
+  window.on('resize',layoutDock);
+  window.on('focus',()=>{focusedContext=context;googleProfile.refresh(activeTab()?.view?.webContents);});
   const shellId = window.webContents.id;
   ipcOwners.set(shellId, {handlers, isShelf:false});
   registerIpc();
   window.on('close', disposePages);
   window.on('closed', () => {
     disposePages();
+    if (dockView) {ipcOwners.delete(dockView.webContents.id);if (!dockView.webContents.isDestroyed()) dockView.webContents.close({waitForBeforeUnload:false});dockView=null;}
     if (shelfWindow && !shelfWindow.isDestroyed()) shelfWindow.destroy();
     ipcOwners.delete(shellId); contexts.delete(context);
     tabs = []; window = null;
   });
   await window.loadFile(path.join(__dirname, 'ui', 'index.html'));
+  dockView = new WebContentsView({webPreferences:{preload:path.join(__dirname,'preload.js'),contextIsolation:true,sandbox:true,nodeIntegration:false}});
+  dockView.setBackgroundColor('#00000000');
+  dockView.setVisible(false);
+  window.contentView.addChildView(dockView);
+  ipcOwners.set(dockView.webContents.id,{handlers,isDock:true});
+  dockView.webContents.on('before-input-event',browserShortcuts);
+  dockView.webContents.setWindowOpenHandler(()=>({action:'deny'}));
+  dockView.webContents.on('will-navigate',event=>event.preventDefault());
+  await dockView.webContents.loadFile(path.join(__dirname,'ui','index.html'),{query:{surface:'dock'}});
+  layoutDock();
   if (!empty) createTab();
   updateWindowAppearance();
   updateBrowserPreferences();
   watchLinkedChrome();
   window.show();
+  profileTimer=setInterval(()=>{if(window && !window.isDestroyed() && focusedContext===context)googleProfile.refresh(activeTab()?.view?.webContents);},3000);
+  profileTimer.unref?.();
   // Browser extensions are not enabled in Vinyl's current feature set.
 
 }
@@ -454,7 +497,7 @@ function registerIpc() {
     ipcMain.handle(name, async (event,payload) => {
       const owner = ipcOwners.get(event.sender.id);
       if (!owner || event.senderFrame !== event.sender.mainFrame) throw new Error('Untrusted Vinyl action');
-      if (owner.isShelf && name === 'browser:layout') return;
+      if ((owner.isShelf || owner.isDock) && name === 'browser:layout') return;
       const result = await owner.handlers.get(name)(payload || {});
       if (!['browser:layout','app:state'].includes(name)) broadcastAll();
       return result;
@@ -464,6 +507,7 @@ function registerIpc() {
   receive('window:minimize', () => window.minimize());
   receive('window:maximize', () => { if (window.isMaximized()) window.unmaximize(); else window.maximize(); });
   receive('window:close', () => window.close());
+  receive('window:dock', ({open,focus}) => setDock(open,focus));
   receive('browser:newTab', ({ url = '' }) => createTab(url));
   receive('browser:activate', ({id}) => activateTab(id));
   receive('browser:close', ({id}) => closeTab(id));
@@ -562,6 +606,10 @@ return context;
 }
 if (primaryInstance) app.whenReady().then(async () => {
   store = new Store(app.getPath('userData'));
+  googleProfile = new GoogleProfile(store,broadcastAll);
+  session.defaultSession.cookies.on('changed',(_event,cookie,cause,removed)=>{
+    if (removed && cause!=='overwrite' && ['SID','__Secure-1PSID','__Secure-3PSID'].includes(cookie.name) && cookie.domain.replace(/^\./,'')==='google.com') googleProfile.clear();
+  });
   updater = setupUpdater(app, broadcastAll, {beforeInstall:() => store.save()});
   nativeTheme.themeSource = store.data.settings.theme || 'system';
   session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {

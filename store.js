@@ -27,6 +27,7 @@ class Store {
         this.data.importedChrome = Boolean(saved.importedChrome);
         this.data.chromeProfileId = typeof saved.chromeProfileId === 'string' ? saved.chromeProfileId : null;
         this.data.googleClientId = typeof saved.googleClientId === 'string' ? saved.googleClientId : '';
+        this.data.googleAvatar = typeof saved.googleAvatar === 'string' ? saved.googleAvatar : '';
         this.data.weatherLocation = saved.weatherLocation && Number.isFinite(saved.weatherLocation.latitude) && Number.isFinite(saved.weatherLocation.longitude) ? saved.weatherLocation : null;
         this.data.recentTabs = Array.isArray(saved.recentTabs) ? saved.recentTabs.filter(item => typeof item.url === 'string' && /^https?:\/\//.test(item.url)).slice(0,12) : [];
       }

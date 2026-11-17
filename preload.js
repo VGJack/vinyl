@@ -1,7 +1,7 @@
 'use strict';
 const { contextBridge, ipcRenderer } = require('electron');
 const allowed = new Set([
-  'app:state', 'window:minimize', 'window:maximize', 'window:close',
+  'app:state', 'window:minimize', 'window:maximize', 'window:close', 'window:dock',
   'window:shelf', 'browser:reorder', 'browser:detach', 'browser:newTab', 'browser:activate', 'browser:close', 'browser:navigate',
   'browser:back', 'browser:forward', 'browser:reload', 'browser:stop',
   'browser:duplicate', 'browser:bookmarkCurrent', 'browser:layout', 'browser:openSettings',

@@ -56,11 +56,13 @@ const ui = {
   state: null, shelfOpen: false, section: 'bookmarks', folderId: null,
   bookmarkSearch: '', shortcutSearch: '',
   contextId: null, menuOpen: false, settingsSection: 'appearance', selectedChromeProfile: '',
-  dockHidden: false, splashComplete: false, homeFeed:null, homeLoadedAt:0
+  tabsVisible:false, tabsPointer:false, dockPointer:false, splashComplete: false, homeFeed:null, homeLoadedAt:0
 };
 const shelfSurface = new URLSearchParams(location.search).get('surface') === 'shelf';
-document.body.dataset.surface = shelfSurface ? 'shelf' : 'browser';
+const dockSurface = new URLSearchParams(location.search).get('surface') === 'dock';
+document.body.dataset.surface = shelfSurface ? 'shelf' : dockSurface ? 'dock' : 'browser';
 let tabDrag = null;
+let dockHideTimer, tabsHideTimer;
 let noticeTimer;
 let lastLayout = '';
 const $ = selector => document.querySelector(selector);
@@ -111,11 +113,13 @@ function applyAppearance() {
   document.body.dataset.compactToolbar = String(Boolean(s.compactToolbar));
   document.body.dataset.toolbarMode = s.addressBarMode === 'compact' ? 'compact' : 'always';
   document.body.dataset.page = !active()?.url ? 'home' : 'web';
-  const dockVisible = !ui.dockHidden;
+  const dockVisible = Boolean(ui.state?.dockOpen);
   document.body.dataset.toolbarVisible = String(dockVisible);
   $('.toolbar').inert = !dockVisible;
-  $('#dock-close').inert = !dockVisible;
   $('#dock-reveal').inert = dockVisible;
+  document.body.dataset.tabsVisible = String(ui.tabsVisible);
+  $('.tabstrip').inert = !ui.tabsVisible;
+  $('#tabs-reveal').inert = ui.tabsVisible;
   document.body.dataset.rounded = String(s.roundedPanels !== false);
   document.body.dataset.shadows = String(s.softShadows !== false);
   document.body.dataset.labels = String(s.showLabels !== false);
@@ -152,7 +156,9 @@ function renderTop() {
   const input = $('#address');
   if (document.activeElement !== input) input.value = tab?.url || '';
   $('#address-icon').innerHTML = icon(tab?.url?.startsWith('https://') ? 'lock' : 'search', 15);
-  $('#google-profile').innerHTML = '<span class="google-letter">G</span>';
+  const picture=ui.state.google?.picture || '';
+  const profileMarkup=picture && ui.failedPicture!==picture ? `<img class="google-avatar" src="${escapeHTML(picture)}" alt="Your Google profile photo" referrerpolicy="no-referrer"/>` : icon('user',20);
+  if (ui.profileMarkup!==profileMarkup) {$('#google-profile').innerHTML=profileMarkup;ui.profileMarkup=profileMarkup;}
   $('#google-profile').title = 'Google account';
   $('#google-profile').setAttribute('aria-label','Google account');
   const onSettings = tab?.url === 'vinyl://settings';
@@ -335,7 +341,7 @@ const settingRows = [
     { key:'shelfEnabled', title:'Bookmark shelf', detail:'Show the integrated bookmarks drawer' },
     { key:'autoCloseShelf', title:'Close after opening', detail:'Collapse the shelf after you open a bookmark' },
     { key:'compactTabs', title:'Compact tabs', detail:'Slightly smaller tabs' },
-    { key:'addressBarMode', title:'Controls size', detail:'Close with the X; hover at the bottom edge to show controls', options:[['always','Standard'],['compact','Compact']] },
+    { key:'addressBarMode', title:'Controls size', detail:'Hover at the bottom edge to show controls; move away to hide them', options:[['always','Standard'],['compact','Compact']] },
     { key:'showLabels', title:'App labels', detail:'Display titles below shelf icons' },
     { key:'showHomeShortcuts', title:'Home shortcuts', detail:'Show your favorite websites on Home' },
     { key:'showRecentTabs', title:'Recent tabs', detail:'Show four recently visited pages on Home' },
@@ -397,16 +403,36 @@ function updateSettingsHTML() {
     <div class="settings-fineprint">Vinyl checks for new builds at startup and every five minutes, then downloads them automatically. When a download finishes, select Restart to update. Your bookmarks and browser data are preserved.</div>`;
 }
 function hideToolbar() {
-  if ($('.toolbar').contains(document.activeElement) || document.activeElement === $('#dock-close')) document.activeElement.blur();
-  ui.dockHidden = true;
-  applyAppearance(); requestAnimationFrame(updateLayout);
+  clearTimeout(dockHideTimer);
+  if ($('.toolbar').contains(document.activeElement)) document.activeElement.blur();
+  run('window:dock',{open:false}).catch(()=>{});
 }
 function revealToolbar() {
-  ui.dockHidden = false;
-  applyAppearance(); requestAnimationFrame(updateLayout);
+  clearTimeout(dockHideTimer);
+  if (!ui.state?.dockOpen) run('window:dock',{open:true}).catch(()=>{});
+}
+function scheduleDockHide() {
+  if (!dockSurface) return;
+  clearTimeout(dockHideTimer);
+  dockHideTimer = setTimeout(()=>{
+    if (ui.dockPointer || document.activeElement === $('#address')) return;
+    hideToolbar();
+  },800);
+}
+function revealTabs() {
+  clearTimeout(tabsHideTimer);
+  ui.tabsVisible=true;applyAppearance();requestAnimationFrame(updateLayout);
+}
+function scheduleTabsHide() {
+  clearTimeout(tabsHideTimer);
+  tabsHideTimer=setTimeout(()=>{
+    if (tabDrag || ui.tabsPointer || $('.tabstrip').querySelector(':focus-visible')) return;
+    if ($('.tabstrip').contains(document.activeElement)) document.activeElement.blur();
+    ui.tabsVisible=false;applyAppearance();requestAnimationFrame(updateLayout);
+  },350);
 }
 function updateLayout() {
-  if (!window.vinyl || !ui.state || shelfSurface) return;
+  if (!window.vinyl || !ui.state || shelfSurface || dockSurface) return;
   const bounds = $('#pageViewport').getBoundingClientRect();
   const payload = { x:Math.round(bounds.x), y:Math.round(bounds.y), width:Math.round(bounds.width), height:Math.round(bounds.height) };
   const serialized = JSON.stringify(payload);
@@ -529,6 +555,7 @@ async function executeAction(button, event) {
   } catch { /* Errors are shown in the toast. */ }
 }
 function focusAddress() {
+  if (!dockSurface) {run('window:dock',{open:true,focus:true}).catch(()=>{});return;}
   revealToolbar();
   requestAnimationFrame(() => { $('#address').focus({preventScroll:true}); $('#address').select(); });
 }
@@ -555,12 +582,22 @@ function bindEvents() {
   $('#shelf-open').addEventListener('click', toggleShelf);
   $('#close-shelf').addEventListener('click', () => setShelf(ui.section,false));
   $('#more-menu').addEventListener('click', () => { setShelf(ui.section,false); run('browser:openSettings').catch(() => {}); });
-  $('#dock-close').innerHTML = icon('x',13);
-  $('#dock-close').addEventListener('click', hideToolbar);
   $('#dock-reveal').addEventListener('pointerenter', revealToolbar);
   $('#dock-reveal').addEventListener('click', revealToolbar);
   $('#dock-reveal').addEventListener('focus', focusAddress);
   $('#address').addEventListener('focus', revealToolbar);
+  $('#address').addEventListener('blur',scheduleDockHide);
+  if (dockSurface) {
+    document.addEventListener('pointerenter',()=>{ui.dockPointer=true;revealToolbar();});
+    document.addEventListener('pointerleave',()=>{ui.dockPointer=false;scheduleDockHide();});
+  }
+  $('#tabs-reveal').addEventListener('pointerenter',()=>{ui.tabsPointer=true;revealTabs();});
+  $('#tabs-reveal').addEventListener('focus',()=>{revealTabs();requestAnimationFrame(()=>$('.tab.active')?.focus({preventScroll:true}));});
+  $('.tabstrip').addEventListener('pointerenter',()=>{ui.tabsPointer=true;revealTabs();});
+  $('.tabstrip').addEventListener('pointerleave',()=>{ui.tabsPointer=false;scheduleTabsHide();});
+  document.addEventListener('pointermove',event=>{if(ui.tabsPointer && event.clientY>$('.tabstrip').getBoundingClientRect().height){ui.tabsPointer=false;scheduleTabsHide();}});
+  document.addEventListener('pointerleave',()=>{ui.tabsPointer=false;scheduleTabsHide();});
+  $('.tabstrip').addEventListener('focusout',scheduleTabsHide);
   $('#window-min').addEventListener('click', () => run('window:minimize').catch(() => {}));
   $('#window-max').addEventListener('click', () => run('window:maximize').catch(() => {}));
   $('#window-close').addEventListener('click', () => run('window:close').catch(() => {}));
@@ -604,6 +641,7 @@ function bindEvents() {
       await run(drag.outside ? 'browser:detach' : 'browser:reorder', {id:drag.id,beforeId:drag.beforeId,x:event.screenX,y:event.screenY}).catch(() => {});
     }
     renderTop();
+    scheduleTabsHide();
   };
   $('#tabs').addEventListener('pointerup', event => endTabDrag(event));
   $('#tabs').addEventListener('pointercancel', event => endTabDrag(event,true));
@@ -651,6 +689,7 @@ function bindEvents() {
     if (bookmark) { event.preventDefault(); bookmarkContext(bookmark.dataset.id,event); return; }
   });
   document.addEventListener('error', event => {
+    if (event.target.matches?.('.google-avatar')) {ui.failedPicture=ui.state.google?.picture;renderTop();return;}
     if (event.target.matches?.('.news-image')) {event.target.remove();return;}
     if (event.target.tagName === 'IMG' && event.target.closest('.pin-image,.favicon,.home-favicon,.tab-favicon,.recent-thumb')) {
       const img = event.target;
@@ -690,13 +729,13 @@ function bindEvents() {
   });
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',applyAppearance);
   const splash = $('#launch-splash');
-  if (shelfSurface) splash.remove();
+  if (shelfSurface || dockSurface) splash.remove();
   else setTimeout(() => { splash.classList.add('splash-finished'); $('#home').classList.remove('home-enter'); requestAnimationFrame(() => $('#home').classList.add('home-enter')); setTimeout(() => splash.remove(), 650); }, window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 100 : 2100);
   new ResizeObserver(() => requestAnimationFrame(updateLayout)).observe($('#pageViewport'));
   setInterval(updateHomeClock, 15000);
-  setInterval(()=>{if(!$('#home').hidden && $('#home').style.display !== 'none')loadHomeFeed();},120000);
+  if (!shelfSurface && !dockSurface) setInterval(()=>{if(!$('#home').hidden && $('#home').style.display !== 'none')loadHomeFeed();},120000);
   window.addEventListener('resize', () => requestAnimationFrame(updateLayout));
-  window.vinyl?.onState(incoming => { ui.state = incoming; render(); });
+  window.vinyl?.onState(incoming => { const opened=!ui.state?.dockOpen && incoming.dockOpen;ui.state = incoming; render();if(opened)scheduleDockHide(); });
   window.vinyl?.onCommand(command => {
     if (command.startsWith('settings:')) { ui.settingsSection = command.slice(9); renderSettings(); }
     if (command === 'hide-controls') hideToolbar();
@@ -712,7 +751,7 @@ async function init() {
     document.body.dataset.shelf = 'open';
     return;
   }
-  try { ui.state = await invoke('app:state'); render(); loadHomeFeed(); }
+  try { ui.state = await invoke('app:state'); render(); if (!shelfSurface && !dockSurface) loadHomeFeed(); }
   catch (error) { toast(`Vinyl could not initialize: ${error.message}`); }
 }
 init();
